@@ -4,27 +4,48 @@ const express  = require('express');
 const router   = express.Router();
 const bcrypt   = require('bcryptjs');
 const jwt      = require('jsonwebtoken');
+const crypto   = require('crypto');
 const pg       = require('../../db/postgres');
 const n8n      = require('../../services/n8nWebhookService');
 const { authLimiter }                               = require('../../middleware/rateLimiter');
 const { validateDate, validateNumber, abort }       = require('../../utils/validate');
 const { VALID_GOALS, VALID_GENDERS, VALID_ACTIVITY_LEVELS } = require('../../utils/constants');
 
-const JWT_SECRET  = process.env.JWT_SECRET;
+const JWT_SECRET           = process.env.JWT_SECRET;
 if (!JWT_SECRET) throw new Error('[auth] JWT_SECRET no está configurado. Añade JWT_SECRET a backend/.env');
-const JWT_EXPIRES = process.env.JWT_EXPIRES || '30d';
+const JWT_ACCESS_EXPIRES   = process.env.JWT_ACCESS_EXPIRES || process.env.JWT_EXPIRES || '15m';
+const REFRESH_EXPIRES_DAYS = parseInt(process.env.JWT_REFRESH_DAYS || '30', 10);
 
 function _sign(account) {
   return jwt.sign(
     { id: account.id, email: account.email, name: account.name },
     JWT_SECRET,
-    { expiresIn: JWT_EXPIRES }
+    { expiresIn: JWT_ACCESS_EXPIRES }
   );
 }
 
 function _safeUser(acc) {
   const { password_hash, ...safe } = acc;
   return safe;
+}
+
+function _hashToken(raw) {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+async function _issueTokens(account, req) {
+  const accessToken  = _sign(account);
+  const raw          = crypto.randomBytes(64).toString('hex');
+  const tokenHash    = _hashToken(raw);
+  const expiresAt    = new Date(Date.now() + REFRESH_EXPIRES_DAYS * 86_400_000);
+
+  await pg.query(
+    `INSERT INTO refresh_tokens (account_id, token_hash, expires_at, user_agent, ip)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [account.id, tokenHash, expiresAt, req.headers['user-agent'] || null, req.ip || null]
+  );
+
+  return { accessToken, refreshToken: raw };
 }
 
 /**
@@ -94,8 +115,8 @@ router.post('/register', authLimiter, async (req, res) => {
         activityLevel, restrictions,
       ]
     );
-    const token = _sign(rows[0]);
-    res.status(201).json({ token, user: _safeUser(rows[0]) });
+    const { accessToken, refreshToken } = await _issueTokens(rows[0], req);
+    res.status(201).json({ accessToken, refreshToken, user: _safeUser(rows[0]) });
   } catch (err) {
     console.error('[auth] register error:', err);
     res.status(500).json({ error: 'Error al registrar usuario' });
@@ -135,7 +156,8 @@ router.post('/login', authLimiter, async (req, res) => {
     const ok = await bcrypt.compare(password, account.password_hash);
     if (!ok)  return res.status(401).json({ error: 'Email o contraseña incorrectos' });
 
-    res.json({ token: _sign(account), user: _safeUser(account) });
+    const { accessToken, refreshToken } = await _issueTokens(account, req);
+    res.json({ accessToken, refreshToken, user: _safeUser(account) });
   } catch (err) {
     console.error('[auth] login error:', err);
     res.status(500).json({ error: 'Error al iniciar sesión' });
@@ -352,6 +374,52 @@ router.get('/ai-suggestions', requireAuth, async (req, res) => {
     [req.accountId]
   );
   res.json(rows);
+});
+
+// ── POST /api/v1/auth/refresh ─────────────────────────────────────────────────
+router.post('/refresh', authLimiter, async (req, res) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken) return res.status(400).json({ error: 'refreshToken requerido' });
+
+  try {
+    const hash = _hashToken(refreshToken);
+    const { rows } = await pg.query(
+      `SELECT rt.*, a.id AS acc_id, a.email, a.name
+       FROM refresh_tokens rt
+       JOIN accounts a ON a.id = rt.account_id
+       WHERE rt.token_hash = $1`,
+      [hash]
+    );
+
+    const record = rows[0];
+    if (!record)                          return res.status(401).json({ error: 'Token inválido' });
+    if (record.revoked)                   return res.status(401).json({ error: 'Token revocado' });
+    if (new Date(record.expires_at) < new Date()) {
+      await pg.query('UPDATE refresh_tokens SET revoked = TRUE WHERE id = $1', [record.id]);
+      return res.status(401).json({ error: 'Token expirado' });
+    }
+
+    const accessToken = _sign({ id: record.acc_id, email: record.email, name: record.name });
+    res.json({ accessToken });
+  } catch (err) {
+    console.error('[auth] refresh error:', err);
+    res.status(500).json({ error: 'Error al refrescar token' });
+  }
+});
+
+// ── POST /api/v1/auth/logout ──────────────────────────────────────────────────
+router.post('/logout', async (req, res) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken) return res.status(200).json({ ok: true });
+
+  try {
+    const hash = _hashToken(refreshToken);
+    await pg.query('UPDATE refresh_tokens SET revoked = TRUE WHERE token_hash = $1', [hash]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[auth] logout error:', err);
+    res.status(500).json({ error: 'Error al cerrar sesión' });
+  }
 });
 
 // ── Middleware ────────────────────────────────────────────────────────────────
