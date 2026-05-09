@@ -39,10 +39,17 @@ const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:8080')
   .split(',')
   .map(o => o.trim());
 
+const isDev = (process.env.NODE_ENV || 'development') !== 'production';
+
 const corsOptions = {
   origin: (origin, cb) => {
-    if (!origin || origin === 'null' || allowedOrigins.includes(origin)) return cb(null, true);
-    cb(new Error(`Origin ${origin} not allowed by CORS`));
+    if (!origin || origin === 'null') return cb(null, true);
+    // En desarrollo se permiten todos los localhost (puertos dinámicos del dev server)
+    if (isDev && /^https?:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    const err = new Error(`Origin ${origin} not allowed by CORS`);
+    err.status = 403;
+    cb(err);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-internal-token'],
