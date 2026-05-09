@@ -296,12 +296,20 @@ router.post('/workout-log', requireAuth, async (req, res) => {
 // ── GET /api/v1/auth/workout-logs ─────────────────────────────────────────────
 router.get('/workout-logs', requireAuth, async (req, res) => {
   const { limit, offset } = _parsePage(req.query, 20);
+  const { from, to } = req.query; // filtros opcionales YYYY-MM-DD
+
+  const conditions = ['account_id = $1'];
+  const params     = [req.accountId];
+  if (from) { conditions.push(`date >= $${params.push(from)}`); }
+  if (to)   { conditions.push(`date <= $${params.push(to)}`);   }
+  const where = conditions.join(' AND ');
+
   const [data, count] = await Promise.all([
     pg.query(
-      'SELECT * FROM workout_logs WHERE account_id = $1 ORDER BY date DESC LIMIT $2 OFFSET $3',
-      [req.accountId, limit, offset]
+      `SELECT * FROM workout_logs WHERE ${where} ORDER BY date DESC LIMIT $${params.push(limit)} OFFSET $${params.push(offset)}`,
+      params
     ),
-    pg.query('SELECT COUNT(*)::int AS total FROM workout_logs WHERE account_id = $1', [req.accountId]),
+    pg.query(`SELECT COUNT(*)::int AS total FROM workout_logs WHERE ${where}`, params.slice(0, -2)),
   ]);
   res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
 });
