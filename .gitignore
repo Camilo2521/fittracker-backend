@@ -10,6 +10,7 @@ python_service/*.pyc
 .env
 backend/.env
 python_service/.env
+n8n/.env
 
 # Logs
 *.log
