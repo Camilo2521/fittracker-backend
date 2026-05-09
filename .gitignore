@@ -1,0 +1,33 @@
+# Dependencies
+backend/node_modules/
+python_service/.venv/
+python_service/venv/
+python_service/__pycache__/
+python_service/**/__pycache__/
+python_service/*.pyc
+
+# Environment — NUNCA subir al repo
+.env
+backend/.env
+python_service/.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# PostgreSQL / SQLite data
+*.db
+*.sqlite
+
+# ML models (grandes — gestionar con Git LFS o descargar aparte)
+models/
+corpus/
+*.pt
+*.onnx
+
+# Docker volumes
+pg_data/
+
+# OS
+.DS_Store
+Thumbs.db

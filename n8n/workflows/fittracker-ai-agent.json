@@ -1,0 +1,118 @@
+{
+  "name": "FitTracker AI Coaching Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "fittracker-events",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-trigger",
+      "name": "Recibir Evento FitTracker",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 300],
+      "webhookId": "fittracker-events-v2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:3000/api/v1/n8n/build-prompt",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "x-n8n-secret", "value": "6e64aad89b97f393b01d82045bd5c1c664947faf57fe692c258e788372893c3b" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "string",
+        "body": "={{ $json.body }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "build-prompt",
+      "name": "Construir Prompt (FitTracker)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "mock-content",
+              "name": "content",
+              "value": "=[{ \"type\": \"text\", \"text\": \"Excelente sesion! Tu constancia esta semana es clave para tu objetivo. Mantente enfocado en la tecnica y sigue progresando cada dia.\" }]",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mock-claude",
+      "name": "Mock Claude (sin créditos)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:3000/api/v1/n8n/callback",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "x-n8n-secret", "value": "6e64aad89b97f393b01d82045bd5c1c664947faf57fe692c258e788372893c3b" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "string",
+        "body": "={{ { accountId: $('Construir Prompt (FitTracker)').first().json.accountId, event: $('Construir Prompt (FitTracker)').first().json.event, suggestion: $json.content[0].text, suggestionType: $('Construir Prompt (FitTracker)').first().json.suggestionType } }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "callback",
+      "name": "Guardar Coaching en FitTracker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { ok: true, accountId: $('Construir Prompt (FitTracker)').first().json.accountId, event: $('Construir Prompt (FitTracker)').first().json.event } }}",
+        "options": { "responseCode": 200 }
+      },
+      "id": "respond-ok",
+      "name": "Responder OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1080, 300]
+    }
+  ],
+  "connections": {
+    "Recibir Evento FitTracker": {
+      "main": [[{ "node": "Construir Prompt (FitTracker)", "type": "main", "index": 0 }]]
+    },
+    "Construir Prompt (FitTracker)": {
+      "main": [[{ "node": "Mock Claude (sin créditos)", "type": "main", "index": 0 }]]
+    },
+    "Mock Claude (sin créditos)": {
+      "main": [[{ "node": "Guardar Coaching en FitTracker", "type": "main", "index": 0 }]]
+    },
+    "Guardar Coaching en FitTracker": {
+      "main": [[{ "node": "Responder OK", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "fittracker-agent-v2-nocode",
+  "id": "fittracker-main-agent",
+  "tags": [{ "name": "FitTracker" }, { "name": "AI Agent" }]
+}

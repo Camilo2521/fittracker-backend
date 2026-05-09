@@ -1,0 +1,133 @@
+{
+  "name": "FitTracker Weekly Check-in (Lunes 9am)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "cronExpression", "expression": "0 9 * * 1" }]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Cron — Lunes 9:00 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://127.0.0.1:3000/api/v1/n8n/weekly-users",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-n8n-secret", "value": "6e64aad89b97f393b01d82045bd5c1c664947faf57fe692c258e788372893c3b" }
+          ]
+        },
+        "options": { "timeout": 15000 }
+      },
+      "id": "fetch-users",
+      "name": "Obtener Usuarios Activos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "users",
+        "options": {}
+      },
+      "id": "split-users",
+      "name": "Un item por usuario",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:3000/api/v1/n8n/build-prompt",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "x-n8n-secret", "value": "6e64aad89b97f393b01d82045bd5c1c664947faf57fe692c258e788372893c3b" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify($json) }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "build-prompt-weekly",
+      "name": "Construir Prompt Semanal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "mock-weekly-content",
+              "name": "content",
+              "value": "=[{ \"type\": \"text\", \"text\": \"Resumen semanal: sigue con constancia. Cada entrenamiento te acerca a tu objetivo. Ajusta tu alimentacion si es necesario y mantén el ritmo esta semana.\" }]",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "claude-weekly",
+      "name": "Mock IA — Análisis Semanal",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1080, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:3000/api/v1/n8n/callback",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Content-Type",  "value": "application/json" },
+            { "name": "x-n8n-secret", "value": "6e64aad89b97f393b01d82045bd5c1c664947faf57fe692c258e788372893c3b" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "contentType": "json",
+        "body": "={{ { accountId: $('Construir Prompt Semanal').first().json.accountId, event: 'weekly.checkin', suggestion: $json.content[0].text, suggestionType: 'weekly.checkin' } }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "callback-weekly",
+      "name": "Guardar en FitTracker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1300, 300]
+    }
+  ],
+  "connections": {
+    "Cron — Lunes 9:00 AM": {
+      "main": [[{ "node": "Obtener Usuarios Activos", "type": "main", "index": 0 }]]
+    },
+    "Obtener Usuarios Activos": {
+      "main": [[{ "node": "Un item por usuario", "type": "main", "index": 0 }]]
+    },
+    "Un item por usuario": {
+      "main": [[{ "node": "Construir Prompt Semanal", "type": "main", "index": 0 }]]
+    },
+    "Construir Prompt Semanal": {
+      "main": [[{ "node": "Claude — Análisis Semanal", "type": "main", "index": 0 }]]
+    },
+    "Claude — Análisis Semanal": {
+      "main": [[{ "node": "Guardar en FitTracker", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "versionId": "fittracker-weekly-v2-nocode",
+  "id": "fittracker-weekly-checkin",
+  "tags": [{ "name": "FitTracker" }, { "name": "Weekly" }, { "name": "Cron" }]
+}

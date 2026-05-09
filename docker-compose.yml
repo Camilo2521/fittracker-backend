@@ -1,0 +1,89 @@
+version: "3.9"
+
+# ============================================================
+# FitTracker v2 — docker-compose
+# Levanta: PostgreSQL + pgvector · Python FastAPI · Node Express
+# ============================================================
+
+services:
+
+  # ── BASE DE DATOS ──────────────────────────────────────────
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: fittracker_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       fittracker_v2
+      POSTGRES_USER:     fittracker
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fittracker -d fittracker_v2"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  # ── MICROSERVICIO PYTHON ───────────────────────────────────
+  python_service:
+    build:
+      context: ./python_service
+      dockerfile: Dockerfile
+    container_name: fittracker_python
+    restart: unless-stopped
+    environment:
+      DATABASE_URL:          postgresql+asyncpg://fittracker:${POSTGRES_PASSWORD}@postgres/fittracker_v2
+      DATABASE_URL_SYNC:     postgresql://fittracker:${POSTGRES_PASSWORD}@postgres/fittracker_v2
+      INTERNAL_API_SECRET:   ${INTERNAL_API_SECRET}
+      OPENAI_API_KEY:        ${OPENAI_API_KEY:-}
+      YOLO_MODEL_PATH:       /models/yolov8n-pose.pt
+      FEATURE_YOLO_ENABLED:  ${FEATURE_YOLO_ENABLED:-false}
+      FEATURE_RAG_ENABLED:   ${FEATURE_RAG_ENABLED:-false}
+      ENVIRONMENT:           ${ENVIRONMENT:-development}
+    volumes:
+      - ./models:/models:ro        # YOLOv8 weights — NO incluir en repo
+      - ./corpus:/corpus:ro        # Documentos RAG — NO incluir en repo
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # ── BACKEND NODE ───────────────────────────────────────────
+  node_backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fittracker_node
+    restart: unless-stopped
+    environment:
+      PORT:                  3001
+      NODE_ENV:              ${ENVIRONMENT:-development}
+      DB_PATH:               /data/fittracker.db
+      PYTHON_SERVICE_URL:    http://python_service:8000
+      INTERNAL_API_SECRET:   ${INTERNAL_API_SECRET}
+      PG_CONNECTION_STRING:  postgresql://fittracker:${POSTGRES_PASSWORD}@postgres/fittracker_v2
+      CORS_ORIGINS:          ${CORS_ORIGINS:-http://localhost:8080,http://localhost:3000}
+      FEATURE_VISION_V2:     ${FEATURE_VISION_V2:-false}
+      FEATURE_RAG_ENABLED:   ${FEATURE_RAG_ENABLED:-false}
+      FEATURE_WEEKLY_PDF:    ${FEATURE_WEEKLY_PDF:-false}
+    volumes:
+      - sqlite_data:/data          # SQLite persiste fuera del contenedor
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      python_service:
+        condition: service_healthy
+
+volumes:
+  pg_data:
+  sqlite_data:
