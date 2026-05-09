@@ -83,17 +83,22 @@ router.get('/sessions/:id', async (req, res) => {
  * Historial de sesiones de un usuario desde PostgreSQL.
  */
 router.get('/history/:userId', async (req, res) => {
+  const limit  = Math.min(Math.max(parseInt(req.query.limit  || '20', 10), 1), 100);
+  const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
   try {
-    const result = await pg.query(
-      `SELECT id, exercise_type, mode, started_at, ended_at,
-              total_reps, total_sets, calories_burned, avg_form_score
-       FROM rep_sessions
-       WHERE account_id = $1
-       ORDER BY started_at DESC
-       LIMIT 50`,
-      [req.params.userId]
-    );
-    res.json(result?.rows || []);
+    const [data, count] = await Promise.all([
+      pg.query(
+        `SELECT id, exercise_type, mode, started_at, ended_at,
+                total_reps, total_sets, calories_burned, avg_form_score
+         FROM rep_sessions
+         WHERE account_id = $1
+         ORDER BY started_at DESC
+         LIMIT $2 OFFSET $3`,
+        [req.params.userId, limit, offset]
+      ),
+      pg.query('SELECT COUNT(*)::int AS total FROM rep_sessions WHERE account_id = $1', [req.params.userId]),
+    ]);
+    res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
   } catch (e) {
     console.error('[reps] history error:', e.message);
     res.status(500).json({ error: 'Error consultando historial' });

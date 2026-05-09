@@ -7,6 +7,7 @@ const jwt      = require('jsonwebtoken');
 const crypto   = require('crypto');
 const pg       = require('../../db/postgres');
 const n8n      = require('../../services/n8nWebhookService');
+const email    = require('../../services/emailService');
 const { authLimiter }                               = require('../../middleware/rateLimiter');
 const { validateDate, validateNumber, abort }       = require('../../utils/validate');
 const { VALID_GOALS, VALID_GENDERS, VALID_ACTIVITY_LEVELS } = require('../../utils/constants');
@@ -31,6 +32,12 @@ function _safeUser(acc) {
 
 function _hashToken(raw) {
   return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
+function _parsePage(query, defaultLimit, maxLimit = 100) {
+  const limit  = Math.min(Math.max(parseInt(query.limit  || defaultLimit, 10), 1), maxLimit);
+  const offset = Math.max(parseInt(query.offset || '0', 10), 0);
+  return { limit, offset };
 }
 
 async function _issueTokens(account, req) {
@@ -228,11 +235,15 @@ router.put('/profile', requireAuth, async (req, res) => {
 
 // ── GET /api/v1/auth/chat-history ────────────────────────────────────────────
 router.get('/chat-history', requireAuth, async (req, res) => {
-  const { rows } = await pg.query(
-    'SELECT role, content, created_at FROM chat_history WHERE account_id = $1 ORDER BY created_at ASC LIMIT 40',
-    [req.accountId]
-  );
-  res.json(rows);
+  const { limit, offset } = _parsePage(req.query, 40);
+  const [data, count] = await Promise.all([
+    pg.query(
+      'SELECT role, content, created_at FROM chat_history WHERE account_id = $1 ORDER BY created_at ASC LIMIT $2 OFFSET $3',
+      [req.accountId, limit, offset]
+    ),
+    pg.query('SELECT COUNT(*)::int AS total FROM chat_history WHERE account_id = $1', [req.accountId]),
+  ]);
+  res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
 });
 
 // ── POST /api/v1/auth/chat-history ───────────────────────────────────────────
@@ -284,11 +295,15 @@ router.post('/workout-log', requireAuth, async (req, res) => {
 
 // ── GET /api/v1/auth/workout-logs ─────────────────────────────────────────────
 router.get('/workout-logs', requireAuth, async (req, res) => {
-  const { rows } = await pg.query(
-    'SELECT * FROM workout_logs WHERE account_id = $1 ORDER BY date DESC LIMIT 60',
-    [req.accountId]
-  );
-  res.json(rows);
+  const { limit, offset } = _parsePage(req.query, 20);
+  const [data, count] = await Promise.all([
+    pg.query(
+      'SELECT * FROM workout_logs WHERE account_id = $1 ORDER BY date DESC LIMIT $2 OFFSET $3',
+      [req.accountId, limit, offset]
+    ),
+    pg.query('SELECT COUNT(*)::int AS total FROM workout_logs WHERE account_id = $1', [req.accountId]),
+  ]);
+  res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
 });
 
 // ── POST /api/v1/auth/diet-log ────────────────────────────────────────────────
@@ -314,11 +329,15 @@ router.post('/diet-log', requireAuth, async (req, res) => {
 
 // ── GET /api/v1/auth/diet-logs ────────────────────────────────────────────────
 router.get('/diet-logs', requireAuth, async (req, res) => {
-  const { rows } = await pg.query(
-    'SELECT * FROM diet_logs WHERE account_id = $1 ORDER BY date DESC LIMIT 60',
-    [req.accountId]
-  );
-  res.json(rows);
+  const { limit, offset } = _parsePage(req.query, 20);
+  const [data, count] = await Promise.all([
+    pg.query(
+      'SELECT * FROM diet_logs WHERE account_id = $1 ORDER BY date DESC LIMIT $2 OFFSET $3',
+      [req.accountId, limit, offset]
+    ),
+    pg.query('SELECT COUNT(*)::int AS total FROM diet_logs WHERE account_id = $1', [req.accountId]),
+  ]);
+  res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
 });
 
 // ── POST /api/v1/auth/progress-log ───────────────────────────────────────────
@@ -348,11 +367,15 @@ router.post('/progress-log', requireAuth, async (req, res) => {
 
 // ── GET /api/v1/auth/progress-logs ───────────────────────────────────────────
 router.get('/progress-logs', requireAuth, async (req, res) => {
-  const { rows } = await pg.query(
-    'SELECT * FROM progress_logs WHERE account_id = $1 ORDER BY date DESC LIMIT 90',
-    [req.accountId]
-  );
-  res.json(rows);
+  const { limit, offset } = _parsePage(req.query, 30);
+  const [data, count] = await Promise.all([
+    pg.query(
+      'SELECT * FROM progress_logs WHERE account_id = $1 ORDER BY date DESC LIMIT $2 OFFSET $3',
+      [req.accountId, limit, offset]
+    ),
+    pg.query('SELECT COUNT(*)::int AS total FROM progress_logs WHERE account_id = $1', [req.accountId]),
+  ]);
+  res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
 });
 
 // ── POST /api/v1/auth/ai-suggestion ──────────────────────────────────────────
@@ -369,11 +392,174 @@ router.post('/ai-suggestion', requireAuth, async (req, res) => {
 
 // ── GET /api/v1/auth/ai-suggestions ──────────────────────────────────────────
 router.get('/ai-suggestions', requireAuth, async (req, res) => {
-  const { rows } = await pg.query(
-    'SELECT * FROM ai_suggestions WHERE account_id = $1 ORDER BY created_at DESC LIMIT 30',
-    [req.accountId]
-  );
-  res.json(rows);
+  const { limit, offset } = _parsePage(req.query, 20);
+  const [data, count] = await Promise.all([
+    pg.query(
+      'SELECT * FROM ai_suggestions WHERE account_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+      [req.accountId, limit, offset]
+    ),
+    pg.query('SELECT COUNT(*)::int AS total FROM ai_suggestions WHERE account_id = $1', [req.accountId]),
+  ]);
+  res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
+});
+
+// ── POST /api/v1/auth/forgot-password ────────────────────────────────────────
+/**
+ * @swagger
+ * /api/v1/auth/forgot-password:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Solicitar enlace de recuperación de contraseña
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email: { type: string, example: usuario@email.com }
+ *     responses:
+ *       200: { description: Si el email existe, se enviará un enlace }
+ */
+router.post('/forgot-password', authLimiter, async (req, res) => {
+  const { email: userEmail } = req.body;
+  if (!userEmail) return res.status(400).json({ error: 'Email requerido' });
+
+  // Respuesta genérica siempre para no revelar si el email existe
+  const generic = { ok: true, message: 'Si ese email está registrado, recibirás un enlace en breve' };
+
+  try {
+    const { rows } = await pg.query('SELECT id, email FROM accounts WHERE email = $1', [userEmail.trim()]);
+    if (!rows.length) return res.json(generic);
+
+    const account  = rows[0];
+    const raw      = crypto.randomBytes(32).toString('hex');
+    const hash     = _hashToken(raw);
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
+
+    // Invalida tokens anteriores del usuario y crea uno nuevo
+    await pg.query('UPDATE password_reset_tokens SET used = TRUE WHERE account_id = $1 AND used = FALSE', [account.id]);
+    await pg.query(
+      'INSERT INTO password_reset_tokens (account_id, token_hash, expires_at) VALUES ($1, $2, $3)',
+      [account.id, hash, expiresAt]
+    );
+
+    await email.sendPasswordReset(account.email, raw);
+    res.json(generic);
+  } catch (err) {
+    console.error('[auth] forgot-password error:', err);
+    res.json(generic); // No revelar el error al cliente
+  }
+});
+
+// ── POST /api/v1/auth/reset-password ─────────────────────────────────────────
+/**
+ * @swagger
+ * /api/v1/auth/reset-password:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Restablecer contraseña con token recibido por email
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token, password]
+ *             properties:
+ *               token:    { type: string }
+ *               password: { type: string, example: "nueva_contraseña" }
+ *     responses:
+ *       200: { description: Contraseña actualizada }
+ *       400: { description: Token inválido, expirado o contraseña muy corta }
+ */
+router.post('/reset-password', authLimiter, async (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password)      return res.status(400).json({ error: 'Token y contraseña requeridos' });
+  if (password.length < 8)      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+
+  const client = await pg.pool.connect();
+  try {
+    const hash = _hashToken(token);
+    const { rows } = await client.query(
+      'SELECT * FROM password_reset_tokens WHERE token_hash = $1',
+      [hash]
+    );
+
+    const record = rows[0];
+    if (!record || record.used)                        return res.status(400).json({ error: 'Token inválido o ya utilizado' });
+    if (new Date(record.expires_at) < new Date())      return res.status(400).json({ error: 'Token expirado. Solicita uno nuevo' });
+
+    const newHash = await bcrypt.hash(password, 10);
+
+    await client.query('BEGIN');
+    await client.query('UPDATE accounts SET password_hash = $1 WHERE id = $2', [newHash, record.account_id]);
+    await client.query('UPDATE password_reset_tokens SET used = TRUE WHERE id = $1', [record.id]);
+    // Revocar todos los refresh tokens activos de esta cuenta
+    await client.query('UPDATE refresh_tokens SET revoked = TRUE WHERE account_id = $1', [record.account_id]);
+    await client.query('COMMIT');
+
+    res.json({ ok: true, message: 'Contraseña actualizada correctamente' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[auth] reset-password error:', err);
+    res.status(500).json({ error: 'Error al restablecer la contraseña' });
+  } finally {
+    client.release();
+  }
+});
+
+// ── DELETE /api/v1/auth/me ────────────────────────────────────────────────────
+/**
+ * @swagger
+ * /api/v1/auth/me:
+ *   delete:
+ *     tags: [Auth]
+ *     summary: Eliminar cuenta y todos los datos del usuario (GDPR)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [password]
+ *             properties:
+ *               password: { type: string, example: "mi_contraseña" }
+ *     responses:
+ *       200: { description: Cuenta eliminada correctamente }
+ *       400: { description: Contraseña requerida }
+ *       401: { description: Contraseña incorrecta }
+ */
+router.delete('/me', requireAuth, async (req, res) => {
+  const { password } = req.body;
+  if (!password) return res.status(400).json({ error: 'Se requiere la contraseña para confirmar el borrado' });
+
+  const client = await pg.pool.connect();
+  try {
+    const { rows } = await client.query('SELECT password_hash FROM accounts WHERE id = $1', [req.accountId]);
+    if (!rows.length) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+    const ok = await bcrypt.compare(password, rows[0].password_hash);
+    if (!ok) return res.status(401).json({ error: 'Contraseña incorrecta' });
+
+    await client.query('BEGIN');
+    // progress_measurements usa ON DELETE SET NULL — borrar explícitamente
+    await client.query('DELETE FROM progress_measurements WHERE account_id = $1', [req.accountId]);
+    // El resto de tablas caen por CASCADE al borrar la cuenta
+    await client.query('DELETE FROM accounts WHERE id = $1', [req.accountId]);
+    await client.query('COMMIT');
+
+    res.json({ ok: true, message: 'Cuenta y todos los datos eliminados correctamente' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[auth] delete account error:', err);
+    res.status(500).json({ error: 'Error al eliminar la cuenta' });
+  } finally {
+    client.release();
+  }
 });
 
 // ── POST /api/v1/auth/refresh ─────────────────────────────────────────────────

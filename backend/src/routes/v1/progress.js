@@ -80,18 +80,23 @@ router.post('/metrics', async (req, res) => {
  * Historial de métricas físicas.
  */
 router.get('/:userId/metrics', async (req, res) => {
+  const limit  = Math.min(Math.max(parseInt(req.query.limit  || '30', 10), 1), 100);
+  const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
   try {
-    const { rows } = await pg.query(
-      `SELECT measured_at, bmi, bmr, tdee, calorie_target
-       FROM physical_metrics
-       WHERE account_id = $1
-       ORDER BY measured_at DESC
-       LIMIT 30`,
-      [req.params.userId]
-    );
-    res.json(rows);
+    const [data, count] = await Promise.all([
+      pg.query(
+        `SELECT measured_at, bmi, bmr, tdee, calorie_target
+         FROM physical_metrics
+         WHERE account_id = $1
+         ORDER BY measured_at DESC
+         LIMIT $2 OFFSET $3`,
+        [req.params.userId, limit, offset]
+      ),
+      pg.query('SELECT COUNT(*)::int AS total FROM physical_metrics WHERE account_id = $1', [req.params.userId]),
+    ]);
+    res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
   } catch (e) {
-    if (e?.code === '42P01') return res.json([]);
+    if (e?.code === '42P01') return res.json({ data: [], total: 0, limit, offset });
     res.status(503).json({ error: 'Servicio de métricas no disponible' });
   }
 });
