@@ -1,11 +1,12 @@
 'use strict';
 
-const express      = require('express');
-const router       = express.Router();
-const { FLAGS }    = require('../../middleware/featureFlags');
-const vision       = require('../../services/visionClient');
-const pg           = require('../../db/postgres');
-const { validateId, validateEnum, abort } = require('../../utils/validate');
+const express        = require('express');
+const router         = express.Router();
+const { FLAGS }      = require('../../middleware/featureFlags');
+const vision         = require('../../services/visionClient');
+const pg             = require('../../db/postgres');
+const { requireAuth } = require('./auth');
+const { validateEnum, abort } = require('../../utils/validate');
 const { VALID_GOALS } = require('../../utils/constants');
 
 /**
@@ -32,20 +33,15 @@ const { VALID_GOALS } = require('../../utils/constants');
  *     responses:
  *       200: { description: Plan de rutina semanal }
  */
-router.post('/generate', async (req, res) => {
-  const { userId } = req.body;
-  if (!userId) return res.status(400).json({ error: 'userId es requerido' });
-  if (abort(res, [
-    validateId(userId, 'userId'),
-    validateEnum(req.body.goal, 'goal', VALID_GOALS),
-  ])) return;
+router.post('/generate', requireAuth, async (req, res) => {
+  if (abort(res, [validateEnum(req.body.goal, 'goal', VALID_GOALS)])) return;
 
-  const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [userId]);
+  const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [req.accountId]);
   const user = rows[0];
 
   if (FLAGS.rag_enabled && user) {
     const result = await vision.generateRoutine({
-      external_id:    userId,
+      external_id:    req.accountId,
       goal:           user.objetivo,
       current_weight: user.peso,
       height_cm:      user.altura_cm,
@@ -62,7 +58,7 @@ router.post('/generate', async (req, res) => {
 /**
  * GET /api/v1/routines/:userId/active
  */
-router.get('/:userId/active', async (req, res) => {
+router.get('/:userId/active', requireAuth, async (req, res) => {
   try {
     const result = await pg.query(
       `SELECT r.*, json_agg(
@@ -80,7 +76,7 @@ router.get('/:userId/active', async (req, res) => {
        WHERE r.cuenta_id = $1 AND r.activo = TRUE
        GROUP BY r.id
        LIMIT 1`,
-      [req.params.userId]
+      [req.accountId]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'No hay rutina activa' });
     res.json(result.rows[0]);

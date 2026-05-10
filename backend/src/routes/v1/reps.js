@@ -1,9 +1,10 @@
 'use strict';
 
-const express = require('express');
-const router  = express.Router();
-const vision  = require('../../services/visionClient');
-const pg      = require('../../db/postgres');
+const express          = require('express');
+const router           = express.Router();
+const vision           = require('../../services/visionClient');
+const pg               = require('../../db/postgres');
+const { requireAuth }  = require('./auth');
 const { validateEnum, abort } = require('../../utils/validate');
 const { VALID_EXERCISE_TYPES } = require('../../utils/constants');
 
@@ -12,14 +13,12 @@ const { VALID_EXERCISE_TYPES } = require('../../utils/constants');
  * Crea una nueva sesión de conteo de repeticiones.
  * Si Python no está disponible → responde con modo local (fallback).
  */
-router.post('/sessions', async (req, res) => {
-  const { userId, exerciseType } = req.body;
-  if (!userId || !exerciseType) {
-    return res.status(400).json({ error: 'userId y exerciseType son requeridos' });
-  }
+router.post('/sessions', requireAuth, async (req, res) => {
+  const { exerciseType } = req.body;
+  if (!exerciseType) return res.status(400).json({ error: 'exerciseType es requerido' });
   if (abort(res, [validateEnum(exerciseType, 'exerciseType', VALID_EXERCISE_TYPES, { required: true })])) return;
 
-  const result = await vision.createSession(userId, exerciseType);
+  const result = await vision.createSession(req.accountId, exerciseType);
 
   if (!result.ok && result.fallback) {
     // Python no disponible → modo offline local
@@ -42,7 +41,7 @@ router.post('/sessions', async (req, res) => {
  * POST /api/v1/reps/sessions/:id/complete
  * Cierra una sesión y persiste los resultados.
  */
-router.post('/sessions/:id/complete', async (req, res) => {
+router.post('/sessions/:id/complete', requireAuth, async (req, res) => {
   const { id } = req.params;
 
   // Sesión local (sin Python) — persiste solo en SQLite via workouts existente
@@ -70,7 +69,7 @@ router.post('/sessions/:id/complete', async (req, res) => {
  * GET /api/v1/reps/sessions/:id
  * Devuelve historial de una sesión.
  */
-router.get('/sessions/:id', async (req, res) => {
+router.get('/sessions/:id', requireAuth, async (req, res) => {
   const result = await vision.getSession(req.params.id);
   if (!result.ok) {
     return res.status(result.status || 502).json(result.data || { error: 'Sesión no encontrada' });
@@ -82,7 +81,7 @@ router.get('/sessions/:id', async (req, res) => {
  * GET /api/v1/reps/history/:userId
  * Historial de sesiones de un usuario desde PostgreSQL.
  */
-router.get('/history/:userId', async (req, res) => {
+router.get('/history/:userId', requireAuth, async (req, res) => {
   const limit  = Math.min(Math.max(parseInt(req.query.limit  || '20', 10), 1), 100);
   const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
   try {
@@ -94,9 +93,9 @@ router.get('/history/:userId', async (req, res) => {
          WHERE account_id = $1
          ORDER BY started_at DESC
          LIMIT $2 OFFSET $3`,
-        [req.params.userId, limit, offset]
+        [req.accountId, limit, offset]
       ),
-      pg.query('SELECT COUNT(*)::int AS total FROM rep_sessions WHERE account_id = $1', [req.params.userId]),
+      pg.query('SELECT COUNT(*)::int AS total FROM rep_sessions WHERE account_id = $1', [req.accountId]),
     ]);
     res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
   } catch (e) {

@@ -131,13 +131,14 @@ router.post('/register', authLimiter, async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await pg.query(
       `INSERT INTO cuentas
-         (correo, hash_contrasena, nombre, objetivo, peso, altura_cm, edad, genero, nivel_actividad, restricciones)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         (correo, hash_contrasena, nombre, objetivo, peso, altura_cm, edad, genero, nivel_actividad, restricciones, onboarding_completado)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
       [
         email.trim(), hash, name.trim(),
         goal, weight || null, height || null, age || null, gender || null,
         activityLevel, restrictions,
+        !!(weight && goal),
       ]
     );
     const { accessToken, refreshToken } = await _issueTokens(rows[0], req);
@@ -233,14 +234,15 @@ router.put('/profile', requireAuth, async (req, res) => {
   try {
     const { rows } = await pg.query(
       `UPDATE cuentas SET
-         nombre          = COALESCE($1, nombre),
-         objetivo        = COALESCE($2, objetivo),
-         peso            = COALESCE($3, peso),
-         altura_cm       = COALESCE($4, altura_cm),
-         edad            = COALESCE($5, edad),
-         genero          = COALESCE($6, genero),
-         nivel_actividad = COALESCE($7, nivel_actividad),
-         restricciones   = COALESCE($8, restricciones)
+         nombre               = COALESCE($1, nombre),
+         objetivo             = COALESCE($2, objetivo),
+         peso                 = COALESCE($3, peso),
+         altura_cm            = COALESCE($4, altura_cm),
+         edad                 = COALESCE($5, edad),
+         genero               = COALESCE($6, genero),
+         nivel_actividad      = COALESCE($7, nivel_actividad),
+         restricciones        = COALESCE($8, restricciones),
+         onboarding_completado = TRUE
        WHERE id = $9
        RETURNING *`,
       [
@@ -422,6 +424,42 @@ router.get('/progress-logs', requireAuth, async (req, res) => {
     pg.query('SELECT COUNT(*)::int AS total FROM registros_progreso WHERE cuenta_id = $1', [req.accountId]),
   ]);
   res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
+});
+
+// ── GET /api/v1/auth/export/csv ──────────────────────────────────────────────
+router.get('/export/csv', requireAuth, async (req, res) => {
+  const type = req.query.type || 'workouts'; // workouts | progress
+  try {
+    let rows, headers, mapper;
+    if (type === 'progress') {
+      const { rows: r } = await pg.query(
+        `SELECT fecha, peso, grasa_corporal, cintura_cm, notas
+         FROM registros_progreso WHERE cuenta_id = $1 ORDER BY fecha DESC`,
+        [req.accountId]
+      );
+      rows    = r;
+      headers = 'fecha,peso_kg,grasa_corporal_%,cintura_cm,notas\n';
+      mapper  = r => `${r.fecha},${r.peso ?? ''},${r.grasa_corporal ?? ''},${r.cintura_cm ?? ''},"${(r.notas || '').replace(/"/g, '""')}"`;
+    } else {
+      const { rows: r } = await pg.query(
+        `SELECT fecha, nombre_rutina, duracion_min, notas
+         FROM registros_entrenamiento WHERE cuenta_id = $1 ORDER BY fecha DESC`,
+        [req.accountId]
+      );
+      rows    = r;
+      headers = 'fecha,rutina,duracion_min,notas\n';
+      mapper  = r => `${r.fecha},"${(r.nombre_rutina || '').replace(/"/g, '""')}",${r.duracion_min ?? ''},"${(r.notas || '').replace(/"/g, '""')}"`;
+    }
+    const csv = headers + rows.map(mapper).join('\n');
+    res.set({
+      'Content-Type':        'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="fittracker-${type}-${new Date().toISOString().slice(0,10)}.csv"`,
+    });
+    res.send('﻿' + csv); // BOM para Excel
+  } catch (err) {
+    console.error('[auth] export/csv error:', err);
+    res.status(500).json({ error: 'Error exportando datos' });
+  }
 });
 
 // ── POST /api/v1/auth/ai-suggestion ──────────────────────────────────────────

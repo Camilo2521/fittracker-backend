@@ -1,13 +1,12 @@
 'use strict';
 
-const express = require('express');
-const router  = express.Router();
-const pg      = require('../../db/postgres');
-const ollama  = require('../../services/ollamaService');
+const express          = require('express');
+const router           = express.Router();
+const pg               = require('../../db/postgres');
+const ollama           = require('../../services/ollamaService');
+const { requireAuth }  = require('./auth');
 const { validateId, abort } = require('../../utils/validate');
 const { ACTIVITY_FACTORS }  = require('../../utils/constants');
-
-const IMAGE_SIZE_LIMIT = 5_000_000; // ~5 MB base64
 
 // ── Memory helpers (PostgreSQL) ────────────────────────────────────────────────
 
@@ -327,19 +326,8 @@ function _localAI(userMsg, p, history) {
 }
 
 // ── Body scan ──────────────────────────────────────────────────────────────────
-router.post('/body-scan', async (req, res) => {
-  const { imageBase64 } = req.body;
-  if (!imageBase64) return res.status(400).json({ error: 'imageBase64 requerido' });
-  if (imageBase64.length > IMAGE_SIZE_LIMIT) return res.status(413).json({ error: 'Imagen demasiado grande (máx. 5 MB)' });
-
-  return res.json({
-    personDetected: true, bodyType: 'mesomorfo', bodyTypeLabel: 'Complexión media',
-    estimatedBMIRange: 'normal (18.5-24.9)', bmiCategory: 'normal',
-    recommendedGoal: 'maintain', recommendedGoalLabel: 'Mantener y tonificar',
-    recommendedActivity: 'moderate', estimatedHeightCategory: 'media (160-175cm)',
-    observations: 'Análisis estimado localmente. Para análisis visual real, conecta una cámara.',
-    confidence: 'baja',
-  });
+router.post('/body-scan', async (_req, res) => {
+  res.status(501).json({ error: 'Análisis corporal por cámara no implementado aún' });
 });
 
 /**
@@ -470,18 +458,13 @@ router.get('/status', async (_req, res) => {
 });
 
 // ── GET /api/v1/ai/memory ──────────────────────────────────────────────────────
-router.get('/memory', async (req, res) => {
-  if (req.query.accountId && abort(res, [validateId(req.query.accountId, 'accountId')])) return;
-  const accountId = req.query.accountId ? parseInt(req.query.accountId, 10) : null;
-  res.json(await _loadMemories(accountId));
+router.get('/memory', requireAuth, async (req, res) => {
+  res.json(await _loadMemories(req.accountId));
 });
 
 // ── DELETE /api/v1/ai/memory/:key ─────────────────────────────────────────────
-router.delete('/memory/:key', async (req, res) => {
-  if (!req.query.accountId) return res.status(400).json({ error: 'accountId requerido' });
-  if (abort(res, [validateId(req.query.accountId, 'accountId')])) return;
-  const accountId = parseInt(req.query.accountId, 10);
-  await pg.query('DELETE FROM memorias_usuario WHERE cuenta_id = $1 AND clave = $2', [accountId, req.params.key]);
+router.delete('/memory/:key', requireAuth, async (req, res) => {
+  await pg.query('DELETE FROM memorias_usuario WHERE cuenta_id = $1 AND clave = $2', [req.accountId, req.params.key]);
   res.json({ deleted: req.params.key });
 });
 

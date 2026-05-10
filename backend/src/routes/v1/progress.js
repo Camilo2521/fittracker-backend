@@ -3,6 +3,7 @@
 const express = require('express');
 const router  = express.Router();
 const pg      = require('../../db/postgres');
+const { requireAuth } = require('./auth');
 const { validateNumber, validateEnum, abort } = require('../../utils/validate');
 const { ACTIVITY_FACTORS, VALID_GOALS, VALID_GENDERS, VALID_ACTIVITY_LEVELS, BMR_DEFICIT, BMR_SURPLUS } = require('../../utils/constants');
 
@@ -10,14 +11,12 @@ const { ACTIVITY_FACTORS, VALID_GOALS, VALID_GENDERS, VALID_ACTIVITY_LEVELS, BMR
  * POST /api/v1/progress/metrics
  * Calcula IMC, TMB y TDEE a partir del perfil en PostgreSQL.
  */
-router.post('/metrics', async (req, res) => {
+router.post('/metrics', requireAuth, async (req, res) => {
   const {
-    userId,
     weight: bodyWeight, heightCm: bodyHeight, age: bodyAge,
     gender: bodyGender, activityLevel: bodyActivity, goal: bodyGoal,
   } = req.body;
-
-  if (!userId) return res.status(400).json({ error: 'userId es requerido' });
+  const userId = req.accountId;
   if (abort(res, [
     validateNumber(bodyWeight,   'weight',        { min: 30,  max: 500 }),
     validateNumber(bodyHeight,   'heightCm',      { min: 50,  max: 280 }),
@@ -79,7 +78,7 @@ router.post('/metrics', async (req, res) => {
  * GET /api/v1/progress/:userId/metrics
  * Historial de métricas físicas.
  */
-router.get('/:userId/metrics', async (req, res) => {
+router.get('/:userId/metrics', requireAuth, async (req, res) => {
   const limit  = Math.min(Math.max(parseInt(req.query.limit  || '30', 10), 1), 100);
   const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
   try {
@@ -90,9 +89,9 @@ router.get('/:userId/metrics', async (req, res) => {
          WHERE cuenta_id = $1
          ORDER BY medido_en DESC
          LIMIT $2 OFFSET $3`,
-        [req.params.userId, limit, offset]
+        [req.accountId, limit, offset]
       ),
-      pg.query('SELECT COUNT(*)::int AS total FROM metricas_fisicas WHERE cuenta_id = $1', [req.params.userId]),
+      pg.query('SELECT COUNT(*)::int AS total FROM metricas_fisicas WHERE cuenta_id = $1', [req.accountId]),
     ]);
     res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
   } catch (e) {

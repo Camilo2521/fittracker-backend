@@ -1,12 +1,13 @@
 'use strict';
 
-const express   = require('express');
-const router    = express.Router();
-const { FLAGS } = require('../../middleware/featureFlags');
-const vision    = require('../../services/visionClient');
-const pg        = require('../../db/postgres');
+const express          = require('express');
+const router           = express.Router();
+const { FLAGS }        = require('../../middleware/featureFlags');
+const vision           = require('../../services/visionClient');
+const pg               = require('../../db/postgres');
+const { requireAuth }  = require('./auth');
 const { generateInternalToken } = require('../../utils/internalToken');
-const { validateDate, validateId, validateString, validateEnum, abort } = require('../../utils/validate');
+const { validateDate, validateString, validateEnum, abort } = require('../../utils/validate');
 const { VALID_GOALS } = require('../../utils/constants');
 
 const PYTHON_BASE = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
@@ -36,23 +37,20 @@ const PYTHON_BASE = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
  *     responses:
  *       200: { description: Plan de dieta semanal con calorías por comida }
  */
-router.post('/generate', async (req, res) => {
-  const { userId, weekStart } = req.body;
-  if (!userId || !weekStart) {
-    return res.status(400).json({ error: 'userId y weekStart son requeridos' });
-  }
+router.post('/generate', requireAuth, async (req, res) => {
+  const { weekStart } = req.body;
+  if (!weekStart) return res.status(400).json({ error: 'weekStart es requerido' });
   if (abort(res, [
-    validateId(userId, 'userId'),
     validateDate(weekStart, 'weekStart'),
     validateEnum(req.body.goal, 'goal', VALID_GOALS),
   ])) return;
 
-  const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [userId]);
+  const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [req.accountId]);
   const user = rows[0];
 
   if (FLAGS.rag_enabled && user) {
     const result = await vision.generateDiet({
-      external_id:    userId,
+      external_id:    req.accountId,
       goal:           user.objetivo,
       current_weight: user.peso,
       target_weight:  user.peso_meta,
@@ -72,7 +70,7 @@ router.post('/generate', async (req, res) => {
 /**
  * GET /api/v1/diets/:userId/current
  */
-router.get('/:userId/current', async (req, res) => {
+router.get('/:userId/current', requireAuth, async (req, res) => {
   const weekStart = _currentWeekStart();
   try {
     const result = await pg.query(`SELECT dp.*, json_agg(
@@ -86,7 +84,7 @@ router.get('/:userId/current', async (req, res) => {
        JOIN dias_dieta dd ON dd.plan_id = dp.id
        WHERE dp.cuenta_id = $1 AND dp.inicio_semana = $2
        GROUP BY dp.id`,
-      [req.params.userId, weekStart]
+      [req.accountId, weekStart]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'No hay plan de dieta para esta semana' });
     res.json(result.rows[0]);
@@ -100,7 +98,7 @@ router.get('/:userId/current', async (req, res) => {
 /**
  * PUT /api/v1/diets/meals/:mealId
  */
-router.put('/meals/:mealId', async (req, res) => {
+router.put('/meals/:mealId', requireAuth, async (req, res) => {
   const { name, calories, protein, carbs, fat, protein_g, carbs_g, fat_g } = req.body;
   const prot = protein ?? protein_g;
   const carb = carbs   ?? carbs_g;
@@ -127,7 +125,7 @@ router.put('/meals/:mealId', async (req, res) => {
 /**
  * POST /api/v1/diets/documents
  */
-router.post('/documents', async (req, res) => {
+router.post('/documents', requireAuth, async (req, res) => {
   const { title, content, type = 'nutrition' } = req.body;
   if (!title || !content) return res.status(400).json({ error: 'title y content son requeridos' });
   if (abort(res, [
