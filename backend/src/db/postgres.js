@@ -14,8 +14,8 @@ function getPool() {
     }
     _pool = new Pool({
       connectionString: connStr,
-      max: 10,
-      idleTimeoutMillis: 30_000,
+      max:                    parseInt(process.env.PG_POOL_MAX || '20', 10),
+      idleTimeoutMillis:      30_000,
       connectionTimeoutMillis: 3_000,
       ssl: connStr.includes('sslmode=require') ? { rejectUnauthorized: false } : false,
     });

@@ -36,6 +36,7 @@ function _safeUser(acc) {
     age:                  acc.edad,
     gender:               acc.genero,
     activity_level:       acc.nivel_actividad,
+    activityLevel:        acc.nivel_actividad,
     restrictions:         acc.restricciones,
     target_weight:        acc.peso_meta,
     start_weight:         acc.peso_inicio,
@@ -117,9 +118,11 @@ router.post('/register', authLimiter, async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
   if (password.length < 8)  return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Email inválido' });
-  if (weight  !== undefined && abort(res, [validateNumber(weight,  'weight',  { min: 30, max: 500 })])) return;
-  if (height  !== undefined && abort(res, [validateNumber(height,  'height',  { min: 50, max: 280 })])) return;
-  if (age     !== undefined && abort(res, [validateNumber(age,     'age',     { min: 5,  max: 120 })])) return;
+  if (weight       !== undefined && abort(res, [validateNumber(weight,  'weight',  { min: 30, max: 500 })])) return;
+  if (height       !== undefined && abort(res, [validateNumber(height,  'height',  { min: 50, max: 280 })])) return;
+  if (age          !== undefined && abort(res, [validateNumber(age,     'age',     { min: 5,  max: 120 })])) return;
+  if (restrictions && restrictions.length > 500) return res.status(400).json({ error: 'restrictions no puede superar 500 caracteres' });
+  if (name         && name.length         >  100) return res.status(400).json({ error: 'name no puede superar 100 caracteres' });
 
   try {
     const exists = await pg.query('SELECT id FROM cuentas WHERE correo = $1', [email.trim()]);
@@ -227,25 +230,31 @@ router.get('/me', requireAuth, async (req, res) => {
  */
 router.put('/profile', requireAuth, async (req, res) => {
   const { name, goal, weight, height, age, gender, activityLevel, restrictions } = req.body;
-  const { rows } = await pg.query(
-    `UPDATE cuentas SET
-       nombre          = COALESCE($1, nombre),
-       objetivo        = COALESCE($2, objetivo),
-       peso            = COALESCE($3, peso),
-       altura_cm       = COALESCE($4, altura_cm),
-       edad            = COALESCE($5, edad),
-       genero          = COALESCE($6, genero),
-       nivel_actividad = COALESCE($7, nivel_actividad),
-       restricciones   = COALESCE($8, restricciones)
-     WHERE id = $9
-     RETURNING *`,
-    [
-      name || null, goal || null, weight || null, height || null,
-      age || null, gender || null, activityLevel || null, restrictions || null,
-      req.accountId,
-    ]
-  );
-  res.json(_safeUser(rows[0]));
+  try {
+    const { rows } = await pg.query(
+      `UPDATE cuentas SET
+         nombre          = COALESCE($1, nombre),
+         objetivo        = COALESCE($2, objetivo),
+         peso            = COALESCE($3, peso),
+         altura_cm       = COALESCE($4, altura_cm),
+         edad            = COALESCE($5, edad),
+         genero          = COALESCE($6, genero),
+         nivel_actividad = COALESCE($7, nivel_actividad),
+         restricciones   = COALESCE($8, restricciones)
+       WHERE id = $9
+       RETURNING *`,
+      [
+        name || null, goal || null, weight || null, height || null,
+        age || null, gender || null, activityLevel || null, restrictions || null,
+        req.accountId,
+      ]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Usuario no encontrado' });
+    res.json(_safeUser(rows[0]));
+  } catch (err) {
+    console.error('[auth] profile update error:', err);
+    res.status(500).json({ error: 'Error al actualizar el perfil' });
+  }
 });
 
 // ── GET /api/v1/auth/chat-history ────────────────────────────────────────────
@@ -267,15 +276,23 @@ router.post('/chat-history', requireAuth, async (req, res) => {
   const valid = messages.filter(m => m.role && m.content);
   if (!valid.length) return res.json({ saved: 0 });
 
+  // Batch INSERT: una sola query para todos los mensajes
+  const values  = [];
+  const params  = [];
+  valid.forEach((m, i) => {
+    const base = i * 3;
+    values.push(`($${base + 1}, $${base + 2}, $${base + 3})`);
+    params.push(req.accountId, m.role, m.content);
+  });
+
   const client = await pg.pool.connect();
   try {
     await client.query('BEGIN');
-    for (const m of valid) {
-      await client.query(
-        'INSERT INTO historial_chat (cuenta_id, rol, contenido) VALUES ($1,$2,$3)',
-        [req.accountId, m.role, m.content]
-      );
-    }
+    await client.query(
+      `INSERT INTO historial_chat (cuenta_id, rol, contenido) VALUES ${values.join(',')}
+       ON CONFLICT DO NOTHING`,
+      params
+    );
     await client.query('COMMIT');
     res.json({ saved: valid.length });
   } catch (err) {
@@ -289,6 +306,9 @@ router.post('/chat-history', requireAuth, async (req, res) => {
 // ── POST /api/v1/auth/workout-log ─────────────────────────────────────────────
 router.post('/workout-log', requireAuth, async (req, res) => {
   const { date, routineName, exercises = [], durationMin, notes } = req.body;
+  if (routineName && routineName.length > 200) return res.status(400).json({ error: 'routineName no puede superar 200 caracteres' });
+  if (notes       && notes.length       > 1000) return res.status(400).json({ error: 'notes no puede superar 1000 caracteres' });
+  if (!Array.isArray(exercises)) return res.status(400).json({ error: 'exercises debe ser un array' });
   const logDate = date || new Date().toISOString().slice(0, 10);
 
   const { rows } = await pg.query(
@@ -313,18 +333,21 @@ router.get('/workout-logs', requireAuth, async (req, res) => {
   const { limit, offset } = _parsePage(req.query, 20);
   const { from, to } = req.query; // filtros opcionales YYYY-MM-DD
 
-  const conditions = ['cuenta_id = $1'];
-  const params     = [req.accountId];
-  if (from) { conditions.push(`fecha >= $${params.push(from)}`); }
-  if (to)   { conditions.push(`fecha <= $${params.push(to)}`);   }
+  const conditions  = ['cuenta_id = $1'];
+  const whereParams = [req.accountId];
+  if (from) { conditions.push(`fecha >= $${whereParams.push(from)}`); }
+  if (to)   { conditions.push(`fecha <= $${whereParams.push(to)}`);   }
   const where = conditions.join(' AND ');
+
+  const pageIdx  = whereParams.length;
+  const dataParams = [...whereParams, limit, offset];
 
   const [data, count] = await Promise.all([
     pg.query(
-      `SELECT * FROM registros_entrenamiento WHERE ${where} ORDER BY fecha DESC LIMIT $${params.push(limit)} OFFSET $${params.push(offset)}`,
-      params
+      `SELECT * FROM registros_entrenamiento WHERE ${where} ORDER BY fecha DESC LIMIT $${pageIdx + 1} OFFSET $${pageIdx + 2}`,
+      dataParams
     ),
-    pg.query(`SELECT COUNT(*)::int AS total FROM registros_entrenamiento WHERE ${where}`, params.slice(0, -2)),
+    pg.query(`SELECT COUNT(*)::int AS total FROM registros_entrenamiento WHERE ${where}`, whereParams),
   ]);
   res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
 });

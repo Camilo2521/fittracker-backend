@@ -5,9 +5,13 @@ const router  = express.Router();
 const pg      = require('../../db/postgres');
 
 const N8N_SECRET = process.env.N8N_SECRET || '';
+const IS_PROD    = (process.env.NODE_ENV || 'development') === 'production';
 
+if (!N8N_SECRET && IS_PROD) {
+  throw new Error('[n8n] N8N_SECRET es obligatorio en producción. Añádelo a backend/.env');
+}
 if (!N8N_SECRET) {
-  console.warn('[n8n] N8N_SECRET no configurado — los endpoints de n8n están sin protección. Añade N8N_SECRET a backend/.env en producción.');
+  console.warn('[n8n] N8N_SECRET no configurado — endpoints de n8n sin protección (solo aceptable en desarrollo).');
 }
 
 function verifyN8nSecret(req, res, next) {
@@ -123,29 +127,50 @@ router.get('/status', async (req, res) => {
 router.get('/weekly-users', verifyN8nSecret, async (req, res) => {
   try {
     const { rows } = await pg.query(`
-      SELECT DISTINCT
-        a.id,
-        a.nombre,
-        a.objetivo,
-        a.peso,
-        a.altura_cm,
-        a.edad,
-        a.genero,
-        a.nivel_actividad,
-        a.restricciones,
-        (SELECT COUNT(*) FROM registros_entrenamiento w WHERE w.cuenta_id = a.id AND w.fecha >= CURRENT_DATE - INTERVAL '7 days')  AS weekly_workouts,
-        (SELECT COUNT(*) FROM registros_dieta         d WHERE d.cuenta_id = a.id AND d.fecha >= CURRENT_DATE - INTERVAL '7 days')  AS weekly_diet_logs,
-        (SELECT AVG(total_kcal) FROM registros_dieta  d WHERE d.cuenta_id = a.id AND d.fecha >= CURRENT_DATE - INTERVAL '7 days' AND d.total_kcal IS NOT NULL) AS avg_kcal,
-        (SELECT peso FROM registros_progreso          p WHERE p.cuenta_id = a.id ORDER BY fecha DESC LIMIT 1)          AS last_weight,
-        (SELECT peso FROM registros_progreso          p WHERE p.cuenta_id = a.id ORDER BY fecha DESC OFFSET 1 LIMIT 1) AS prev_weight
-      FROM cuentas a
-      WHERE a.id IN (
+      WITH activos AS (
         SELECT cuenta_id FROM registros_entrenamiento WHERE fecha >= CURRENT_DATE - INTERVAL '14 days'
         UNION
         SELECT cuenta_id FROM registros_dieta         WHERE fecha >= CURRENT_DATE - INTERVAL '14 days'
         UNION
         SELECT cuenta_id FROM registros_progreso      WHERE fecha >= CURRENT_DATE - INTERVAL '14 days'
+      ),
+      stats_entreno AS (
+        SELECT cuenta_id, COUNT(*) AS weekly_workouts
+        FROM registros_entrenamiento
+        WHERE fecha >= CURRENT_DATE - INTERVAL '7 days'
+        GROUP BY cuenta_id
+      ),
+      stats_dieta AS (
+        SELECT cuenta_id, COUNT(*) AS weekly_diet_logs, AVG(total_kcal) AS avg_kcal
+        FROM registros_dieta
+        WHERE fecha >= CURRENT_DATE - INTERVAL '7 days'
+        GROUP BY cuenta_id
+      ),
+      stats_progreso AS (
+        SELECT cuenta_id,
+          MAX(CASE WHEN rn = 1 THEN peso END) AS last_weight,
+          MAX(CASE WHEN rn = 2 THEN peso END) AS prev_weight
+        FROM (
+          SELECT cuenta_id, peso,
+                 ROW_NUMBER() OVER (PARTITION BY cuenta_id ORDER BY fecha DESC) AS rn
+          FROM registros_progreso
+        ) sub
+        WHERE rn <= 2
+        GROUP BY cuenta_id
       )
+      SELECT
+        a.id, a.nombre, a.objetivo, a.peso, a.altura_cm,
+        a.edad, a.genero, a.nivel_actividad, a.restricciones,
+        COALESCE(se.weekly_workouts, 0)  AS weekly_workouts,
+        COALESCE(sd.weekly_diet_logs, 0) AS weekly_diet_logs,
+        sd.avg_kcal,
+        sp.last_weight,
+        sp.prev_weight
+      FROM cuentas a
+      JOIN activos ac ON ac.cuenta_id = a.id
+      LEFT JOIN stats_entreno  se ON se.cuenta_id = a.id
+      LEFT JOIN stats_dieta    sd ON sd.cuenta_id = a.id
+      LEFT JOIN stats_progreso sp ON sp.cuenta_id = a.id
     `);
 
     const enriched = rows.map(u => ({
