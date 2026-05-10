@@ -90,12 +90,12 @@ router.get('/history/:userId', requireAuth, async (req, res) => {
         `SELECT id, exercise_type, mode, started_at, ended_at,
                 total_reps, total_sets, calories_burned, avg_form_score
          FROM rep_sessions
-         WHERE account_id = $1
+         WHERE cuenta_id = $1
          ORDER BY started_at DESC
          LIMIT $2 OFFSET $3`,
         [req.accountId, limit, offset]
       ),
-      pg.query('SELECT COUNT(*)::int AS total FROM rep_sessions WHERE account_id = $1', [req.accountId]),
+      pg.query('SELECT COUNT(*)::int AS total FROM rep_sessions WHERE cuenta_id = $1', [req.accountId]),
     ]);
     res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
   } catch (e) {
