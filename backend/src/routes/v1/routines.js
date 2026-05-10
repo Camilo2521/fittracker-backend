@@ -40,22 +40,22 @@ router.post('/generate', async (req, res) => {
     validateEnum(req.body.goal, 'goal', VALID_GOALS),
   ])) return;
 
-  const { rows } = await pg.query('SELECT * FROM accounts WHERE id = $1', [userId]);
+  const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [userId]);
   const user = rows[0];
 
   if (FLAGS.rag_enabled && user) {
     const result = await vision.generateRoutine({
       external_id:    userId,
-      goal:           user.goal,
-      current_weight: user.weight,
-      height_cm:      user.height_cm,
-      age:            user.age,
-      activity_level: user.activity_level || 'moderate',
+      goal:           user.objetivo,
+      current_weight: user.peso,
+      height_cm:      user.altura_cm,
+      age:            user.edad,
+      activity_level: user.nivel_actividad || 'moderate',
     });
     if (result.ok) return res.json(result.data);
   }
 
-  const goal = user?.goal || req.body.goal || 'maintain';
+  const goal = user?.objetivo || req.body.goal || 'maintain';
   return res.json(_localRoutine(goal));
 });
 
@@ -67,17 +67,17 @@ router.get('/:userId/active', async (req, res) => {
     const result = await pg.query(
       `SELECT r.*, json_agg(
          json_build_object(
-           'day_index', rd.day_index,
-           'focus', rd.focus,
-           'exercises', (
-             SELECT json_agg(re.* ORDER BY re.order_index)
-             FROM routine_exercises re WHERE re.day_id = rd.id
+           'indice_dia', rd.indice_dia,
+           'enfoque', rd.enfoque,
+           'ejercicios', (
+             SELECT json_agg(re.* ORDER BY re.orden)
+             FROM ejercicios_rutina re WHERE re.dia_id = rd.id
            )
-         ) ORDER BY rd.day_index
-       ) AS days
-       FROM routines r
-       JOIN routine_days rd ON rd.routine_id = r.id
-       WHERE r.account_id = $1 AND r.is_active = TRUE
+         ) ORDER BY rd.indice_dia
+       ) AS dias
+       FROM rutinas r
+       JOIN dias_rutina rd ON rd.rutina_id = r.id
+       WHERE r.cuenta_id = $1 AND r.activo = TRUE
        GROUP BY r.id
        LIMIT 1`,
       [req.params.userId]

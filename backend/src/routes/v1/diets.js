@@ -47,25 +47,25 @@ router.post('/generate', async (req, res) => {
     validateEnum(req.body.goal, 'goal', VALID_GOALS),
   ])) return;
 
-  const { rows } = await pg.query('SELECT * FROM accounts WHERE id = $1', [userId]);
+  const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [userId]);
   const user = rows[0];
 
   if (FLAGS.rag_enabled && user) {
     const result = await vision.generateDiet({
       external_id:    userId,
-      goal:           user.goal,
-      current_weight: user.weight,
-      target_weight:  user.target_weight,
-      height_cm:      user.height_cm,
-      age:            user.age,
-      gender:         user.gender,
-      activity_level: user.activity_level || 'moderate',
-      restrictions:   user.restrictions || null,
+      goal:           user.objetivo,
+      current_weight: user.peso,
+      target_weight:  user.peso_meta,
+      height_cm:      user.altura_cm,
+      age:            user.edad,
+      gender:         user.genero,
+      activity_level: user.nivel_actividad || 'moderate',
+      restrictions:   user.restricciones || null,
     }, weekStart);
     if (result.ok) return res.json(result.data);
   }
 
-  const goal = user?.goal || req.body.goal || 'maintain';
+  const goal = user?.objetivo || req.body.goal || 'maintain';
   return res.json(_localDiet(goal, weekStart));
 });
 
@@ -77,14 +77,14 @@ router.get('/:userId/current', async (req, res) => {
   try {
     const result = await pg.query(`SELECT dp.*, json_agg(
          json_build_object(
-           'day_of_week', dd.day_of_week,
-           'total_calories', dd.total_calories,
-           'meals', (SELECT json_agg(dm.*) FROM diet_meals dm WHERE dm.day_id = dd.id)
-         ) ORDER BY dd.day_of_week
-       ) AS days
-       FROM diet_plans dp
-       JOIN diet_days dd ON dd.plan_id = dp.id
-       WHERE dp.account_id = $1 AND dp.week_start = $2
+           'dia_semana', dd.dia_semana,
+           'calorias_totales', dd.calorias_totales,
+           'comidas', (SELECT json_agg(dm.*) FROM comidas_plan dm WHERE dm.dia_id = dd.id)
+         ) ORDER BY dd.dia_semana
+       ) AS dias
+       FROM planes_dieta dp
+       JOIN dias_dieta dd ON dd.plan_id = dp.id
+       WHERE dp.cuenta_id = $1 AND dp.inicio_semana = $2
        GROUP BY dp.id`,
       [req.params.userId, weekStart]
     );
@@ -107,13 +107,13 @@ router.put('/meals/:mealId', async (req, res) => {
   const fatV = fat     ?? fat_g;
   try {
     await pg.query(
-      `UPDATE diet_meals
-       SET name            = COALESCE($1, name),
-           calories        = COALESCE($2, calories),
-           protein_g       = COALESCE($3, protein_g),
-           carbs_g         = COALESCE($4, carbs_g),
-           fat_g           = COALESCE($5, fat_g),
-           manual_override = TRUE
+      `UPDATE comidas_plan
+       SET nombre          = COALESCE($1, nombre),
+           calorias        = COALESCE($2, calorias),
+           proteinas_g     = COALESCE($3, proteinas_g),
+           carbohidratos_g = COALESCE($4, carbohidratos_g),
+           grasas_g        = COALESCE($5, grasas_g),
+           ajuste_manual   = TRUE
        WHERE id = $6`,
       [name || null, calories || null, prot || null, carb || null, fatV || null, req.params.mealId]
     );
@@ -136,7 +136,7 @@ router.post('/documents', async (req, res) => {
   ])) return;
   try {
     const { rows } = await pg.query(
-      'INSERT INTO nutrition_documents (title, content, type) VALUES ($1,$2,$3) RETURNING id',
+      'INSERT INTO documentos_nutricion (titulo, contenido, tipo) VALUES ($1,$2,$3) RETURNING id',
       [title, content, type]
     );
     fetch(`${PYTHON_BASE}/rag/ingest`, {

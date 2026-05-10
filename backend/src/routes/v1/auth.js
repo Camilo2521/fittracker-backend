@@ -19,14 +19,14 @@ const REFRESH_EXPIRES_DAYS = parseInt(process.env.JWT_REFRESH_DAYS || '30', 10);
 
 function _sign(account) {
   return jwt.sign(
-    { id: account.id, email: account.email, name: account.name },
+    { id: account.id, email: account.correo ?? account.email, name: account.nombre ?? account.name },
     JWT_SECRET,
     { expiresIn: JWT_ACCESS_EXPIRES }
   );
 }
 
 function _safeUser(acc) {
-  const { password_hash, ...safe } = acc;
+  const { hash_contrasena, ...safe } = acc;
   return safe;
 }
 
@@ -47,7 +47,7 @@ async function _issueTokens(account, req) {
   const expiresAt    = new Date(Date.now() + REFRESH_EXPIRES_DAYS * 86_400_000);
 
   await pg.query(
-    `INSERT INTO refresh_tokens (account_id, token_hash, expires_at, user_agent, ip)
+    `INSERT INTO tokens_refresco (cuenta_id, hash_token, expira_en, agente_usuario, ip)
      VALUES ($1, $2, $3, $4, $5)`,
     [account.id, tokenHash, expiresAt, req.headers['user-agent'] || null, req.ip || null]
   );
@@ -107,13 +107,13 @@ router.post('/register', authLimiter, async (req, res) => {
   if (age     !== undefined && abort(res, [validateNumber(age,     'age',     { min: 5,  max: 120 })])) return;
 
   try {
-    const exists = await pg.query('SELECT id FROM accounts WHERE email = $1', [email.trim()]);
+    const exists = await pg.query('SELECT id FROM cuentas WHERE correo = $1', [email.trim()]);
     if (exists.rows.length) return res.status(409).json({ error: 'Este email ya está registrado' });
 
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await pg.query(
-      `INSERT INTO accounts
-         (email, password_hash, name, goal, weight, height_cm, age, gender, activity_level, restrictions)
+      `INSERT INTO cuentas
+         (correo, hash_contrasena, nombre, objetivo, peso, altura_cm, edad, genero, nivel_actividad, restricciones)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING *`,
       [
@@ -156,11 +156,11 @@ router.post('/login', authLimiter, async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
 
   try {
-    const { rows } = await pg.query('SELECT * FROM accounts WHERE email = $1', [email.trim()]);
+    const { rows } = await pg.query('SELECT * FROM cuentas WHERE correo = $1', [email.trim()]);
     const account  = rows[0];
     if (!account) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
 
-    const ok = await bcrypt.compare(password, account.password_hash);
+    const ok = await bcrypt.compare(password, account.hash_contrasena);
     if (!ok)  return res.status(401).json({ error: 'Email o contraseña incorrectos' });
 
     const { accessToken, refreshToken } = await _issueTokens(account, req);
@@ -182,7 +182,7 @@ router.post('/login', authLimiter, async (req, res) => {
  *       401: { description: Token requerido }
  */
 router.get('/me', requireAuth, async (req, res) => {
-  const { rows } = await pg.query('SELECT * FROM accounts WHERE id = $1', [req.accountId]);
+  const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [req.accountId]);
   if (!rows.length) return res.status(404).json({ error: 'Usuario no encontrado' });
   res.json(_safeUser(rows[0]));
 });
@@ -213,15 +213,15 @@ router.get('/me', requireAuth, async (req, res) => {
 router.put('/profile', requireAuth, async (req, res) => {
   const { name, goal, weight, height, age, gender, activityLevel, restrictions } = req.body;
   const { rows } = await pg.query(
-    `UPDATE accounts SET
-       name           = COALESCE($1, name),
-       goal           = COALESCE($2, goal),
-       weight         = COALESCE($3, weight),
-       height_cm      = COALESCE($4, height_cm),
-       age            = COALESCE($5, age),
-       gender         = COALESCE($6, gender),
-       activity_level = COALESCE($7, activity_level),
-       restrictions   = COALESCE($8, restrictions)
+    `UPDATE cuentas SET
+       nombre          = COALESCE($1, nombre),
+       objetivo        = COALESCE($2, objetivo),
+       peso            = COALESCE($3, peso),
+       altura_cm       = COALESCE($4, altura_cm),
+       edad            = COALESCE($5, edad),
+       genero          = COALESCE($6, genero),
+       nivel_actividad = COALESCE($7, nivel_actividad),
+       restricciones   = COALESCE($8, restricciones)
      WHERE id = $9
      RETURNING *`,
     [
@@ -238,10 +238,10 @@ router.get('/chat-history', requireAuth, async (req, res) => {
   const { limit, offset } = _parsePage(req.query, 40);
   const [data, count] = await Promise.all([
     pg.query(
-      'SELECT role, content, created_at FROM chat_history WHERE account_id = $1 ORDER BY created_at ASC LIMIT $2 OFFSET $3',
+      'SELECT rol, contenido, creado_en FROM historial_chat WHERE cuenta_id = $1 ORDER BY creado_en ASC LIMIT $2 OFFSET $3',
       [req.accountId, limit, offset]
     ),
-    pg.query('SELECT COUNT(*)::int AS total FROM chat_history WHERE account_id = $1', [req.accountId]),
+    pg.query('SELECT COUNT(*)::int AS total FROM historial_chat WHERE cuenta_id = $1', [req.accountId]),
   ]);
   res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
 });
@@ -257,7 +257,7 @@ router.post('/chat-history', requireAuth, async (req, res) => {
     await client.query('BEGIN');
     for (const m of valid) {
       await client.query(
-        'INSERT INTO chat_history (account_id, role, content) VALUES ($1,$2,$3)',
+        'INSERT INTO historial_chat (cuenta_id, rol, contenido) VALUES ($1,$2,$3)',
         [req.accountId, m.role, m.content]
       );
     }
@@ -277,7 +277,7 @@ router.post('/workout-log', requireAuth, async (req, res) => {
   const logDate = date || new Date().toISOString().slice(0, 10);
 
   const { rows } = await pg.query(
-    `INSERT INTO workout_logs (account_id, date, routine_name, exercises, duration_min, notes)
+    `INSERT INTO registros_entrenamiento (cuenta_id, fecha, nombre_rutina, ejercicios_json, duracion_min, notas)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
     [req.accountId, logDate, routineName || null, JSON.stringify(exercises), durationMin || null, notes || null]
   );
@@ -298,18 +298,18 @@ router.get('/workout-logs', requireAuth, async (req, res) => {
   const { limit, offset } = _parsePage(req.query, 20);
   const { from, to } = req.query; // filtros opcionales YYYY-MM-DD
 
-  const conditions = ['account_id = $1'];
+  const conditions = ['cuenta_id = $1'];
   const params     = [req.accountId];
-  if (from) { conditions.push(`date >= $${params.push(from)}`); }
-  if (to)   { conditions.push(`date <= $${params.push(to)}`);   }
+  if (from) { conditions.push(`fecha >= $${params.push(from)}`); }
+  if (to)   { conditions.push(`fecha <= $${params.push(to)}`);   }
   const where = conditions.join(' AND ');
 
   const [data, count] = await Promise.all([
     pg.query(
-      `SELECT * FROM workout_logs WHERE ${where} ORDER BY date DESC LIMIT $${params.push(limit)} OFFSET $${params.push(offset)}`,
+      `SELECT * FROM registros_entrenamiento WHERE ${where} ORDER BY fecha DESC LIMIT $${params.push(limit)} OFFSET $${params.push(offset)}`,
       params
     ),
-    pg.query(`SELECT COUNT(*)::int AS total FROM workout_logs WHERE ${where}`, params.slice(0, -2)),
+    pg.query(`SELECT COUNT(*)::int AS total FROM registros_entrenamiento WHERE ${where}`, params.slice(0, -2)),
   ]);
   res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
 });
@@ -320,7 +320,7 @@ router.post('/diet-log', requireAuth, async (req, res) => {
   const logDate = date || new Date().toISOString().slice(0, 10);
 
   const { rows } = await pg.query(
-    `INSERT INTO diet_logs (account_id, date, plan_name, meals, total_kcal, notes)
+    `INSERT INTO registros_dieta (cuenta_id, fecha, nombre_plan, comidas_json, total_kcal, notas)
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
     [req.accountId, logDate, planName || null, JSON.stringify(meals), totalKcal || null, notes || null]
   );
@@ -340,10 +340,10 @@ router.get('/diet-logs', requireAuth, async (req, res) => {
   const { limit, offset } = _parsePage(req.query, 20);
   const [data, count] = await Promise.all([
     pg.query(
-      'SELECT * FROM diet_logs WHERE account_id = $1 ORDER BY date DESC LIMIT $2 OFFSET $3',
+      'SELECT * FROM registros_dieta WHERE cuenta_id = $1 ORDER BY fecha DESC LIMIT $2 OFFSET $3',
       [req.accountId, limit, offset]
     ),
-    pg.query('SELECT COUNT(*)::int AS total FROM diet_logs WHERE account_id = $1', [req.accountId]),
+    pg.query('SELECT COUNT(*)::int AS total FROM registros_dieta WHERE cuenta_id = $1', [req.accountId]),
   ]);
   res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
 });
@@ -354,13 +354,13 @@ router.post('/progress-log', requireAuth, async (req, res) => {
   const logDate = date || new Date().toISOString().slice(0, 10);
 
   const { rows } = await pg.query(
-    `INSERT INTO progress_logs (account_id, date, weight, body_fat, chest_cm, waist_cm, hip_cm, arm_cm, notes)
+    `INSERT INTO registros_progreso (cuenta_id, fecha, peso, grasa_corporal, pecho_cm, cintura_cm, cadera_cm, brazo_cm, notas)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
     [req.accountId, logDate, weight || null, bodyFat || null, chestCm || null, waistCm || null, hipCm || null, armCm || null, notes || null]
   );
 
   if (weight) {
-    await pg.query('UPDATE accounts SET weight = $1 WHERE id = $2', [weight, req.accountId]);
+    await pg.query('UPDATE cuentas SET peso = $1 WHERE id = $2', [weight, req.accountId]);
   }
 
   n8n.buildUserContext(req.accountId).then(ctx => {
@@ -378,10 +378,10 @@ router.get('/progress-logs', requireAuth, async (req, res) => {
   const { limit, offset } = _parsePage(req.query, 30);
   const [data, count] = await Promise.all([
     pg.query(
-      'SELECT * FROM progress_logs WHERE account_id = $1 ORDER BY date DESC LIMIT $2 OFFSET $3',
+      'SELECT * FROM registros_progreso WHERE cuenta_id = $1 ORDER BY fecha DESC LIMIT $2 OFFSET $3',
       [req.accountId, limit, offset]
     ),
-    pg.query('SELECT COUNT(*)::int AS total FROM progress_logs WHERE account_id = $1', [req.accountId]),
+    pg.query('SELECT COUNT(*)::int AS total FROM registros_progreso WHERE cuenta_id = $1', [req.accountId]),
   ]);
   res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
 });
@@ -391,7 +391,7 @@ router.post('/ai-suggestion', requireAuth, async (req, res) => {
   const { suggestionType, content, userFeedback } = req.body;
   if (!content) return res.status(400).json({ error: 'content es requerido' });
   const { rows } = await pg.query(
-    `INSERT INTO ai_suggestions (account_id, suggestion_type, content, user_feedback)
+    `INSERT INTO sugerencias_ia (cuenta_id, tipo_sugerencia, contenido, respuesta_usuario)
      VALUES ($1,$2,$3,$4) RETURNING id`,
     [req.accountId, suggestionType || 'general', content, userFeedback || null]
   );
@@ -403,10 +403,10 @@ router.get('/ai-suggestions', requireAuth, async (req, res) => {
   const { limit, offset } = _parsePage(req.query, 20);
   const [data, count] = await Promise.all([
     pg.query(
-      'SELECT * FROM ai_suggestions WHERE account_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+      'SELECT * FROM sugerencias_ia WHERE cuenta_id = $1 ORDER BY creado_en DESC LIMIT $2 OFFSET $3',
       [req.accountId, limit, offset]
     ),
-    pg.query('SELECT COUNT(*)::int AS total FROM ai_suggestions WHERE account_id = $1', [req.accountId]),
+    pg.query('SELECT COUNT(*)::int AS total FROM sugerencias_ia WHERE cuenta_id = $1', [req.accountId]),
   ]);
   res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
 });
@@ -439,7 +439,7 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
   const generic = { ok: true, message: 'Si ese email está registrado, recibirás un enlace en breve' };
 
   try {
-    const { rows } = await pg.query('SELECT id, email FROM accounts WHERE email = $1', [userEmail.trim()]);
+    const { rows } = await pg.query('SELECT id, correo FROM cuentas WHERE correo = $1', [userEmail.trim()]);
     if (!rows.length) return res.json(generic);
 
     const account  = rows[0];
@@ -448,13 +448,13 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hora
 
     // Invalida tokens anteriores del usuario y crea uno nuevo
-    await pg.query('UPDATE password_reset_tokens SET used = TRUE WHERE account_id = $1 AND used = FALSE', [account.id]);
+    await pg.query('UPDATE tokens_recuperacion SET utilizado = TRUE WHERE cuenta_id = $1 AND utilizado = FALSE', [account.id]);
     await pg.query(
-      'INSERT INTO password_reset_tokens (account_id, token_hash, expires_at) VALUES ($1, $2, $3)',
+      'INSERT INTO tokens_recuperacion (cuenta_id, hash_token, expira_en) VALUES ($1, $2, $3)',
       [account.id, hash, expiresAt]
     );
 
-    await email.sendPasswordReset(account.email, raw);
+    await email.sendPasswordReset(account.correo, raw);
     res.json(generic);
   } catch (err) {
     console.error('[auth] forgot-password error:', err);
@@ -493,21 +493,21 @@ router.post('/reset-password', authLimiter, async (req, res) => {
   try {
     const hash = _hashToken(token);
     const { rows } = await client.query(
-      'SELECT * FROM password_reset_tokens WHERE token_hash = $1',
+      'SELECT * FROM tokens_recuperacion WHERE hash_token = $1',
       [hash]
     );
 
     const record = rows[0];
-    if (!record || record.used)                        return res.status(400).json({ error: 'Token inválido o ya utilizado' });
-    if (new Date(record.expires_at) < new Date())      return res.status(400).json({ error: 'Token expirado. Solicita uno nuevo' });
+    if (!record || record.utilizado)                   return res.status(400).json({ error: 'Token inválido o ya utilizado' });
+    if (new Date(record.expira_en) < new Date())       return res.status(400).json({ error: 'Token expirado. Solicita uno nuevo' });
 
     const newHash = await bcrypt.hash(password, 10);
 
     await client.query('BEGIN');
-    await client.query('UPDATE accounts SET password_hash = $1 WHERE id = $2', [newHash, record.account_id]);
-    await client.query('UPDATE password_reset_tokens SET used = TRUE WHERE id = $1', [record.id]);
+    await client.query('UPDATE cuentas SET hash_contrasena = $1 WHERE id = $2', [newHash, record.cuenta_id]);
+    await client.query('UPDATE tokens_recuperacion SET utilizado = TRUE WHERE id = $1', [record.id]);
     // Revocar todos los refresh tokens activos de esta cuenta
-    await client.query('UPDATE refresh_tokens SET revoked = TRUE WHERE account_id = $1', [record.account_id]);
+    await client.query('UPDATE tokens_refresco SET revocado = TRUE WHERE cuenta_id = $1', [record.cuenta_id]);
     await client.query('COMMIT');
 
     res.json({ ok: true, message: 'Contraseña actualizada correctamente' });
@@ -547,17 +547,17 @@ router.delete('/me', requireAuth, async (req, res) => {
 
   const client = await pg.pool.connect();
   try {
-    const { rows } = await client.query('SELECT password_hash FROM accounts WHERE id = $1', [req.accountId]);
+    const { rows } = await client.query('SELECT hash_contrasena FROM cuentas WHERE id = $1', [req.accountId]);
     if (!rows.length) return res.status(404).json({ error: 'Usuario no encontrado' });
 
-    const ok = await bcrypt.compare(password, rows[0].password_hash);
+    const ok = await bcrypt.compare(password, rows[0].hash_contrasena);
     if (!ok) return res.status(401).json({ error: 'Contraseña incorrecta' });
 
     await client.query('BEGIN');
-    // progress_measurements usa ON DELETE SET NULL — borrar explícitamente
-    await client.query('DELETE FROM progress_measurements WHERE account_id = $1', [req.accountId]);
+    // mediciones_progreso usa ON DELETE SET NULL — borrar explícitamente
+    await client.query('DELETE FROM mediciones_progreso WHERE cuenta_id = $1', [req.accountId]);
     // El resto de tablas caen por CASCADE al borrar la cuenta
-    await client.query('DELETE FROM accounts WHERE id = $1', [req.accountId]);
+    await client.query('DELETE FROM cuentas WHERE id = $1', [req.accountId]);
     await client.query('COMMIT');
 
     res.json({ ok: true, message: 'Cuenta y todos los datos eliminados correctamente' });
@@ -578,22 +578,22 @@ router.post('/refresh', authLimiter, async (req, res) => {
   try {
     const hash = _hashToken(refreshToken);
     const { rows } = await pg.query(
-      `SELECT rt.*, a.id AS acc_id, a.email, a.name
-       FROM refresh_tokens rt
-       JOIN accounts a ON a.id = rt.account_id
-       WHERE rt.token_hash = $1`,
+      `SELECT rt.*, a.id AS acc_id, a.correo, a.nombre
+       FROM tokens_refresco rt
+       JOIN cuentas a ON a.id = rt.cuenta_id
+       WHERE rt.hash_token = $1`,
       [hash]
     );
 
     const record = rows[0];
     if (!record)                          return res.status(401).json({ error: 'Token inválido' });
-    if (record.revoked)                   return res.status(401).json({ error: 'Token revocado' });
-    if (new Date(record.expires_at) < new Date()) {
-      await pg.query('UPDATE refresh_tokens SET revoked = TRUE WHERE id = $1', [record.id]);
+    if (record.revocado)                  return res.status(401).json({ error: 'Token revocado' });
+    if (new Date(record.expira_en) < new Date()) {
+      await pg.query('UPDATE tokens_refresco SET revocado = TRUE WHERE id = $1', [record.id]);
       return res.status(401).json({ error: 'Token expirado' });
     }
 
-    const accessToken = _sign({ id: record.acc_id, email: record.email, name: record.name });
+    const accessToken = _sign({ id: record.acc_id, email: record.correo, name: record.nombre });
     res.json({ accessToken });
   } catch (err) {
     console.error('[auth] refresh error:', err);
@@ -608,7 +608,7 @@ router.post('/logout', async (req, res) => {
 
   try {
     const hash = _hashToken(refreshToken);
-    await pg.query('UPDATE refresh_tokens SET revoked = TRUE WHERE token_hash = $1', [hash]);
+    await pg.query('UPDATE tokens_refresco SET revocado = TRUE WHERE hash_token = $1', [hash]);
     res.json({ ok: true });
   } catch (err) {
     console.error('[auth] logout error:', err);

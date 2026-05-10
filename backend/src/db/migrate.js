@@ -8,7 +8,21 @@ const pg   = require('./postgres');
 
 const MIGRATIONS_DIR = path.join(__dirname, '../../../database/migrations');
 
+async function _migracionesExiste(client) {
+  const { rows } = await client.query(
+    `SELECT to_regclass('public._migraciones') AS t`
+  );
+  return !!rows[0].t;
+}
+
 async function getApplied(client) {
+  if (await _migracionesExiste(client)) {
+    // Post-migración 005: tabla y columnas en español
+    const { rows } = await client.query('SELECT archivo FROM _migraciones ORDER BY archivo');
+    return rows.map(r => r.archivo);
+  }
+
+  // Pre-migración 005: tabla en inglés
   await client.query(`
     CREATE TABLE IF NOT EXISTS _migrations (
       id         BIGSERIAL   PRIMARY KEY,
@@ -24,7 +38,18 @@ async function applyMigration(client, filename, sql) {
   await client.query('BEGIN');
   try {
     await client.query(sql);
-    await client.query('INSERT INTO _migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING', [filename]);
+    // Tras ejecutar el SQL, la tabla de tracking puede haberse renombrado (migración 005)
+    if (await _migracionesExiste(client)) {
+      await client.query(
+        'INSERT INTO _migraciones (archivo) VALUES ($1) ON CONFLICT DO NOTHING',
+        [filename]
+      );
+    } else {
+      await client.query(
+        'INSERT INTO _migrations (filename) VALUES ($1) ON CONFLICT DO NOTHING',
+        [filename]
+      );
+    }
     await client.query('COMMIT');
     console.log(`[migrate] ${filename}: aplicada`);
   } catch (err) {

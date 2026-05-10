@@ -104,7 +104,7 @@ app.get('/health', async (_req, res) => {
   try {
     const pyRes = await fetch(
       `${process.env.PYTHON_SERVICE_URL || 'http://localhost:8000'}/health`,
-      { signal: AbortSignal.timeout(2000) }
+      { signal: AbortSignal.timeout(6000) }
     );
     const data = await pyRes.json();
     checks.python = data.status || 'ok';

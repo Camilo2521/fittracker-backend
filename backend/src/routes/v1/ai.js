@@ -14,7 +14,7 @@ const IMAGE_SIZE_LIMIT = 5_000_000; // ~5 MB base64
 async function _loadMemories(accountId) {
   if (!accountId) return [];
   const { rows } = await pg.query(
-    'SELECT key, value FROM user_memories WHERE account_id = $1 ORDER BY updated_at DESC',
+    'SELECT clave, valor FROM memorias_usuario WHERE cuenta_id = $1 ORDER BY actualizado_en DESC',
     [accountId]
   );
   return rows;
@@ -27,9 +27,9 @@ async function _saveMemories(accountId, pairs) {
     await client.query('BEGIN');
     for (const { key, value } of pairs) {
       await client.query(
-        `INSERT INTO user_memories (account_id, key, value)
+        `INSERT INTO memorias_usuario (cuenta_id, clave, valor)
          VALUES ($1,$2,$3)
-         ON CONFLICT (account_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+         ON CONFLICT (cuenta_id, clave) DO UPDATE SET valor = EXCLUDED.valor, actualizado_en = NOW()`,
         [accountId, key, String(value)]
       );
     }
@@ -122,7 +122,7 @@ function _buildSystemPrompt(p = {}, memories = []) {
   ].filter(Boolean).map(l => `- ${l}`).join('\n');
 
   const memBlock = memories.length
-    ? `\nDATOS RECORDADOS DE CONVERSACIONES ANTERIORES:\n${memories.map(m => `- ${m.key}: ${m.value}`).join('\n')}`
+    ? `\nDATOS RECORDADOS DE CONVERSACIONES ANTERIORES:\n${memories.map(m => `- ${m.clave}: ${m.valor}`).join('\n')}`
     : '';
 
   return `Eres FitBot, el asistente de fitness y nutrición personal de la app FitTracker. Eres un coach experto, cercano y directo.
@@ -481,7 +481,7 @@ router.delete('/memory/:key', async (req, res) => {
   if (!req.query.accountId) return res.status(400).json({ error: 'accountId requerido' });
   if (abort(res, [validateId(req.query.accountId, 'accountId')])) return;
   const accountId = parseInt(req.query.accountId, 10);
-  await pg.query('DELETE FROM user_memories WHERE account_id = $1 AND key = $2', [accountId, req.params.key]);
+  await pg.query('DELETE FROM memorias_usuario WHERE cuenta_id = $1 AND clave = $2', [accountId, req.params.key]);
   res.json({ deleted: req.params.key });
 });
 

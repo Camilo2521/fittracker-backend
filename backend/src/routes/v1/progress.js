@@ -27,15 +27,15 @@ router.post('/metrics', async (req, res) => {
     validateEnum(bodyGoal,       'goal',          VALID_GOALS),
   ])) return;
 
-  const { rows } = await pg.query('SELECT * FROM accounts WHERE id = $1', [userId]);
+  const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [userId]);
   const user = rows[0];
 
-  const weight   = user?.weight      || bodyWeight;
-  const height   = user?.height_cm   || bodyHeight;
-  const age      = user?.age         || bodyAge;
-  const gender   = user?.gender      || bodyGender   || 'male';
-  const activity = user?.activity_level || bodyActivity || 'moderate';
-  const goal     = user?.goal        || bodyGoal     || 'maintain';
+  const weight   = user?.peso            || bodyWeight;
+  const height   = user?.altura_cm       || bodyHeight;
+  const age      = user?.edad            || bodyAge;
+  const gender   = user?.genero          || bodyGender   || 'male';
+  const activity = user?.nivel_actividad || bodyActivity || 'moderate';
+  const goal     = user?.objetivo        || bodyGoal     || 'maintain';
 
   if (!weight || !height || !age) {
     return res.status(422).json({
@@ -65,10 +65,10 @@ router.post('/metrics', async (req, res) => {
 
   // Persistir en PostgreSQL (fire-and-forget)
   pg.query(
-    `INSERT INTO physical_metrics (account_id, bmi, bmr, tdee, calorie_target)
+    `INSERT INTO metricas_fisicas (cuenta_id, imc, tmb, gasto_calorico, meta_calorica)
      VALUES ($1,$2,$3,$4,$5)
-     ON CONFLICT (account_id, measured_at) DO UPDATE
-     SET bmi=$2, bmr=$3, tdee=$4, calorie_target=$5`,
+     ON CONFLICT (cuenta_id, medido_en) DO UPDATE
+     SET imc=$2, tmb=$3, gasto_calorico=$4, meta_calorica=$5`,
     [userId, metrics.bmi, metrics.bmr, metrics.tdee, metrics.calorie_target]
   ).catch(e => console.warn('[progress] No se pudo persistir métricas:', e.message));
 
@@ -85,14 +85,14 @@ router.get('/:userId/metrics', async (req, res) => {
   try {
     const [data, count] = await Promise.all([
       pg.query(
-        `SELECT measured_at, bmi, bmr, tdee, calorie_target
-         FROM physical_metrics
-         WHERE account_id = $1
-         ORDER BY measured_at DESC
+        `SELECT medido_en, imc, tmb, gasto_calorico, meta_calorica
+         FROM metricas_fisicas
+         WHERE cuenta_id = $1
+         ORDER BY medido_en DESC
          LIMIT $2 OFFSET $3`,
         [req.params.userId, limit, offset]
       ),
-      pg.query('SELECT COUNT(*)::int AS total FROM physical_metrics WHERE account_id = $1', [req.params.userId]),
+      pg.query('SELECT COUNT(*)::int AS total FROM metricas_fisicas WHERE cuenta_id = $1', [req.params.userId]),
     ]);
     res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
   } catch (e) {

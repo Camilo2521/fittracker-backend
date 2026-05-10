@@ -76,16 +76,16 @@ router.post('/callback', verifyN8nSecret, async (req, res) => {
   if (!suggestion) return res.status(400).json({ error: 'suggestion es requerido' });
 
   try {
-    const { rows: accs } = await pg.query('SELECT id, name FROM accounts WHERE id = $1', [accountId]);
+    const { rows: accs } = await pg.query('SELECT id, nombre FROM cuentas WHERE id = $1', [accountId]);
     if (!accs.length) return res.status(404).json({ error: 'Cuenta no encontrada' });
 
     const type = suggestionType || event || 'n8n_coaching';
     const { rows } = await pg.query(
-      'INSERT INTO ai_suggestions (account_id, suggestion_type, content) VALUES ($1,$2,$3) RETURNING id',
+      'INSERT INTO sugerencias_ia (cuenta_id, tipo_sugerencia, contenido) VALUES ($1,$2,$3) RETURNING id',
       [accountId, type, suggestion]
     );
 
-    console.log(`[n8n] ✅ Sugerencia guardada — cuenta ${accountId} (${accs[0].name}) tipo="${type}" id=${rows[0].id}`);
+    console.log(`[n8n] ✅ Sugerencia guardada — cuenta ${accountId} (${accs[0].nombre}) tipo="${type}" id=${rows[0].id}`);
     res.json({ ok: true, id: rows[0].id, accountId, type });
   } catch (err) {
     console.error('[n8n] callback error:', err.message);
@@ -102,9 +102,9 @@ router.get('/status', async (req, res) => {
 
   try {
     const { rows } = await pg.query(
-      `SELECT COUNT(*) AS c FROM ai_suggestions
-       WHERE suggestion_type LIKE 'n8n%'
-          OR suggestion_type IN ('workout.logged','diet.logged','progress.updated','weekly.checkin')`
+      `SELECT COUNT(*) AS c FROM sugerencias_ia
+       WHERE tipo_sugerencia LIKE 'n8n%'
+          OR tipo_sugerencia IN ('workout.logged','diet.logged','progress.updated','weekly.checkin')`
     );
     res.json({
       configured:       !!webhookUrl,
@@ -125,35 +125,35 @@ router.get('/weekly-users', verifyN8nSecret, async (req, res) => {
     const { rows } = await pg.query(`
       SELECT DISTINCT
         a.id,
-        a.name,
-        a.goal,
-        a.weight,
-        a.height_cm,
-        a.age,
-        a.gender,
-        a.activity_level,
-        a.restrictions,
-        (SELECT COUNT(*) FROM workout_logs  w WHERE w.account_id = a.id AND w.date >= CURRENT_DATE - INTERVAL '7 days')  AS weekly_workouts,
-        (SELECT COUNT(*) FROM diet_logs     d WHERE d.account_id = a.id AND d.date >= CURRENT_DATE - INTERVAL '7 days')  AS weekly_diet_logs,
-        (SELECT AVG(total_kcal) FROM diet_logs d WHERE d.account_id = a.id AND d.date >= CURRENT_DATE - INTERVAL '7 days' AND d.total_kcal IS NOT NULL) AS avg_kcal,
-        (SELECT weight FROM progress_logs   p WHERE p.account_id = a.id ORDER BY date DESC LIMIT 1)          AS last_weight,
-        (SELECT weight FROM progress_logs   p WHERE p.account_id = a.id ORDER BY date DESC OFFSET 1 LIMIT 1) AS prev_weight
-      FROM accounts a
+        a.nombre,
+        a.objetivo,
+        a.peso,
+        a.altura_cm,
+        a.edad,
+        a.genero,
+        a.nivel_actividad,
+        a.restricciones,
+        (SELECT COUNT(*) FROM registros_entrenamiento w WHERE w.cuenta_id = a.id AND w.fecha >= CURRENT_DATE - INTERVAL '7 days')  AS weekly_workouts,
+        (SELECT COUNT(*) FROM registros_dieta         d WHERE d.cuenta_id = a.id AND d.fecha >= CURRENT_DATE - INTERVAL '7 days')  AS weekly_diet_logs,
+        (SELECT AVG(total_kcal) FROM registros_dieta  d WHERE d.cuenta_id = a.id AND d.fecha >= CURRENT_DATE - INTERVAL '7 days' AND d.total_kcal IS NOT NULL) AS avg_kcal,
+        (SELECT peso FROM registros_progreso          p WHERE p.cuenta_id = a.id ORDER BY fecha DESC LIMIT 1)          AS last_weight,
+        (SELECT peso FROM registros_progreso          p WHERE p.cuenta_id = a.id ORDER BY fecha DESC OFFSET 1 LIMIT 1) AS prev_weight
+      FROM cuentas a
       WHERE a.id IN (
-        SELECT account_id FROM workout_logs  WHERE date >= CURRENT_DATE - INTERVAL '14 days'
+        SELECT cuenta_id FROM registros_entrenamiento WHERE fecha >= CURRENT_DATE - INTERVAL '14 days'
         UNION
-        SELECT account_id FROM diet_logs     WHERE date >= CURRENT_DATE - INTERVAL '14 days'
+        SELECT cuenta_id FROM registros_dieta         WHERE fecha >= CURRENT_DATE - INTERVAL '14 days'
         UNION
-        SELECT account_id FROM progress_logs WHERE date >= CURRENT_DATE - INTERVAL '14 days'
+        SELECT cuenta_id FROM registros_progreso      WHERE fecha >= CURRENT_DATE - INTERVAL '14 days'
       )
     `);
 
     const enriched = rows.map(u => ({
       accountId: u.id,
       user: {
-        name: u.name, goal: u.goal, weight: u.weight,
-        height: u.height_cm, age: u.age, gender: u.gender,
-        activityLevel: u.activity_level, restrictions: u.restrictions,
+        name: u.nombre, goal: u.objetivo, weight: u.peso,
+        height: u.altura_cm, age: u.edad, gender: u.genero,
+        activityLevel: u.nivel_actividad, restrictions: u.restricciones,
       },
       context: {
         weeklyWorkouts: parseInt(u.weekly_workouts, 10),
