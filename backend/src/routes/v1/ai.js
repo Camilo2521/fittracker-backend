@@ -387,7 +387,7 @@ router.post('/chat', async (req, res) => {
 
   const memories     = await _loadMemories(accountId);
   const systemPrompt = _buildSystemPrompt(userProfile, memories);
-  const history      = messages.slice(-24).map(m => ({ role: m.role, content: m.content }));
+  const history      = messages.slice(-30).map(m => ({ role: m.role, content: m.content }));
 
   if (await ollama.isAvailable()) {
     try {
@@ -424,7 +424,7 @@ router.post('/chat/stream', async (req, res) => {
 
   const memories     = await _loadMemories(accountId);
   const systemPrompt = _buildSystemPrompt(userProfile, memories);
-  const history      = messages.slice(-24).map(m => ({ role: m.role, content: m.content }));
+  const history      = messages.slice(-30).map(m => ({ role: m.role, content: m.content }));
 
   if (await ollama.isAvailable()) {
     try {

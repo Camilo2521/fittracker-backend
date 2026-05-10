@@ -26,8 +26,23 @@ function _sign(account) {
 }
 
 function _safeUser(acc) {
-  const { hash_contrasena, ...safe } = acc;
-  return safe;
+  return {
+    id:                   acc.id,
+    name:                 acc.nombre,
+    email:                acc.correo,
+    goal:                 acc.objetivo,
+    weight:               acc.peso,
+    height_cm:            acc.altura_cm,
+    age:                  acc.edad,
+    gender:               acc.genero,
+    activity_level:       acc.nivel_actividad,
+    restrictions:         acc.restricciones,
+    target_weight:        acc.peso_meta,
+    start_weight:         acc.peso_inicio,
+    completed_onboarding: acc.onboarding_completado,
+    created_at:           acc.creado_en,
+    updated_at:           acc.actualizado_en,
+  };
 }
 
 function _hashToken(raw) {
