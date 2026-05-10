@@ -21,7 +21,7 @@ describe('POST /api/v1/auth/register', () => {
       name: 'Ana García',
     });
     expect(res.status).toBe(201);
-    expect(res.body.token).toBeTruthy();
+    expect(res.body.accessToken).toBeTruthy();
     expect(res.body.user.email).toMatch(/@test\.com$/);
   });
 
@@ -101,7 +101,7 @@ describe('POST /api/v1/auth/login', () => {
       email: credentials.email, password: credentials.password,
     });
     expect(res.status).toBe(200);
-    expect(res.body.token).toBeTruthy();
+    expect(res.body.accessToken).toBeTruthy();
   });
 
   it('el login es case-insensitive para el email', async () => {

@@ -651,9 +651,10 @@ router.post('/refresh', authLimiter, async (req, res) => {
   const { refreshToken } = req.body;
   if (!refreshToken) return res.status(400).json({ error: 'refreshToken requerido' });
 
+  const client = await pg.pool.connect();
   try {
     const hash = _hashToken(refreshToken);
-    const { rows } = await pg.query(
+    const { rows } = await client.query(
       `SELECT rt.*, a.id AS acc_id, a.correo, a.nombre
        FROM tokens_refresco rt
        JOIN cuentas a ON a.id = rt.cuenta_id
@@ -662,18 +663,27 @@ router.post('/refresh', authLimiter, async (req, res) => {
     );
 
     const record = rows[0];
-    if (!record)                          return res.status(401).json({ error: 'Token inválido' });
-    if (record.revocado)                  return res.status(401).json({ error: 'Token revocado' });
+    if (!record)         return res.status(401).json({ error: 'Token inválido' });
+    if (record.revocado) return res.status(401).json({ error: 'Token revocado' });
     if (new Date(record.expira_en) < new Date()) {
-      await pg.query('UPDATE tokens_refresco SET revocado = TRUE WHERE id = $1', [record.id]);
+      await client.query('UPDATE tokens_refresco SET revocado = TRUE WHERE id = $1', [record.id]);
       return res.status(401).json({ error: 'Token expirado' });
     }
 
-    const accessToken = _sign({ id: record.acc_id, email: record.correo, name: record.nombre });
-    res.json({ accessToken });
+    // Rotación: revocar el token usado y emitir un par nuevo en la misma transacción
+    const account = { id: record.acc_id, correo: record.correo, nombre: record.nombre };
+    await client.query('BEGIN');
+    await client.query('UPDATE tokens_refresco SET revocado = TRUE WHERE id = $1', [record.id]);
+    const tokens = await _issueTokens(account, req);
+    await client.query('COMMIT');
+
+    res.json(tokens);
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('[auth] refresh error:', err);
     res.status(500).json({ error: 'Error al refrescar token' });
+  } finally {
+    client.release();
   }
 });
 

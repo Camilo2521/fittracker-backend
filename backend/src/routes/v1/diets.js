@@ -29,9 +29,8 @@ const PYTHON_BASE = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
  *         application/json:
  *           schema:
  *             type: object
- *             required: [userId, weekStart]
+ *             required: [weekStart]
  *             properties:
- *               userId:    { type: string, example: "1" }
  *               weekStart: { type: string, example: "2026-05-05" }
  *               goal:      { type: string, enum: [lose, gain, maintain] }
  *     responses:
@@ -68,9 +67,9 @@ router.post('/generate', requireAuth, async (req, res) => {
 });
 
 /**
- * GET /api/v1/diets/:userId/current
+ * GET /api/v1/diets/current
  */
-router.get('/:userId/current', requireAuth, async (req, res) => {
+router.get('/current', requireAuth, async (req, res) => {
   const weekStart = _currentWeekStart();
   try {
     const result = await pg.query(`SELECT dp.*, json_agg(

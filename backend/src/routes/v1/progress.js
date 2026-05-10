@@ -75,10 +75,10 @@ router.post('/metrics', requireAuth, async (req, res) => {
 });
 
 /**
- * GET /api/v1/progress/:userId/metrics
- * Historial de métricas físicas.
+ * GET /api/v1/progress/metrics
+ * Historial de métricas físicas del usuario autenticado.
  */
-router.get('/:userId/metrics', requireAuth, async (req, res) => {
+router.get('/metrics', requireAuth, async (req, res) => {
   const limit  = Math.min(Math.max(parseInt(req.query.limit  || '30', 10), 1), 100);
   const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
   try {

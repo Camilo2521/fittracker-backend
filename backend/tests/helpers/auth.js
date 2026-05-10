@@ -23,7 +23,7 @@ async function registerUser(app, overrides = {}) {
   if (res.status !== 201) {
     throw new Error(`registerUser failed (${res.status}): ${JSON.stringify(res.body)}`);
   }
-  return { token: res.body.token, user: res.body.user, credentials: body };
+  return { token: res.body.accessToken, user: res.body.user, credentials: body };
 }
 
 /**

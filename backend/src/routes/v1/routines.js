@@ -26,9 +26,7 @@ const { VALID_GOALS } = require('../../utils/constants');
  *         application/json:
  *           schema:
  *             type: object
- *             required: [userId]
  *             properties:
- *               userId: { type: string, example: "1" }
  *               goal:   { type: string, enum: [lose, gain, maintain] }
  *     responses:
  *       200: { description: Plan de rutina semanal }
@@ -56,9 +54,9 @@ router.post('/generate', requireAuth, async (req, res) => {
 });
 
 /**
- * GET /api/v1/routines/:userId/active
+ * GET /api/v1/routines/active
  */
-router.get('/:userId/active', requireAuth, async (req, res) => {
+router.get('/active', requireAuth, async (req, res) => {
   try {
     const result = await pg.query(
       `SELECT r.*, json_agg(

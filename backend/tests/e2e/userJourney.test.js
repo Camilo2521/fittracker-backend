@@ -37,9 +37,9 @@ describe('Flujo completo de usuario — "María fitness journey"', () => {
       activityLevel: 'light',
     });
     expect(res.status).toBe(201);
-    expect(res.body.token).toBeTruthy();
+    expect(res.body.accessToken).toBeTruthy();
     expect(res.body.user.goal).toBe('lose');
-    token  = res.body.token;
+    token  = res.body.accessToken;
     userId = res.body.user.id;
   });
 
@@ -48,8 +48,8 @@ describe('Flujo completo de usuario — "María fitness journey"', () => {
   it('2. Hace login y recibe un token válido', async () => {
     const res = await request(app).post('/api/v1/auth/login').send({ email, password });
     expect(res.status).toBe(200);
-    expect(res.body.token).toBeTruthy();
-    token = res.body.token; // refresca token
+    expect(res.body.accessToken).toBeTruthy();
+    token = res.body.accessToken;
   });
 
   // ── 3. Consulta su perfil ─────────────────────────────────────────────────
