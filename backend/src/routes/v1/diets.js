@@ -39,10 +39,7 @@ const PYTHON_BASE = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
 router.post('/generate', requireAuth, async (req, res) => {
   const { weekStart } = req.body;
   if (!weekStart) return res.status(400).json({ error: 'weekStart es requerido' });
-  if (abort(res, [
-    validateDate(weekStart, 'weekStart'),
-    validateEnum(req.body.goal, 'goal', VALID_GOALS),
-  ])) return;
+  if (abort(res, [validateDate(weekStart, 'weekStart')])) return;
 
   const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [req.accountId]);
   const user = rows[0];
@@ -62,7 +59,7 @@ router.post('/generate', requireAuth, async (req, res) => {
     if (result.ok) return res.json(result.data);
   }
 
-  const goal = user?.objetivo || req.body.goal || 'maintain';
+  const goal = req.body.goal || user?.objetivo || 'maintain';
   return res.json(_localDiet(goal, weekStart));
 });
 
@@ -103,17 +100,23 @@ router.put('/meals/:mealId', requireAuth, async (req, res) => {
   const carb = carbs   ?? carbs_g;
   const fatV = fat     ?? fat_g;
   try {
-    await pg.query(
-      `UPDATE comidas_plan
-       SET nombre          = COALESCE($1, nombre),
-           calorias        = COALESCE($2, calorias),
-           proteinas_g     = COALESCE($3, proteinas_g),
-           carbohidratos_g = COALESCE($4, carbohidratos_g),
-           grasas_g        = COALESCE($5, grasas_g),
+    const { rowCount } = await pg.query(
+      `UPDATE comidas_plan cp
+       SET nombre          = COALESCE($1, cp.nombre),
+           calorias        = COALESCE($2, cp.calorias),
+           proteinas_g     = COALESCE($3, cp.proteinas_g),
+           carbohidratos_g = COALESCE($4, cp.carbohidratos_g),
+           grasas_g        = COALESCE($5, cp.grasas_g),
            ajuste_manual   = TRUE
-       WHERE id = $6`,
-      [name || null, calories || null, prot || null, carb || null, fatV || null, req.params.mealId]
+       FROM dias_dieta dd
+       JOIN planes_dieta dp ON dp.id = dd.plan_id
+       WHERE cp.id = $6
+         AND cp.dia_id = dd.id
+         AND dp.cuenta_id = $7`,
+      [name || null, calories || null, prot || null, carb || null, fatV || null,
+       req.params.mealId, req.accountId]
     );
+    if (rowCount === 0) return res.status(404).json({ error: 'Comida no encontrada' });
     res.json({ success: true });
   } catch (err) {
     console.error('[diets] PUT /meals error:', err.message);

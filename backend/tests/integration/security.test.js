@@ -71,7 +71,7 @@ describe('Aislamiento de datos entre usuarios', () => {
       .get('/api/v1/auth/workout-logs')
       .set(bearerHeader(token2));
 
-    const names = res.body.map(l => l.routine_name);
+    const names = (res.body.data || []).map(l => l.nombre_rutina);
     expect(names).not.toContain('Rutina Secreta de A');
   });
 

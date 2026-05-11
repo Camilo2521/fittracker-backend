@@ -18,10 +18,12 @@ jest.mock('../../src/services/visionClient', () => require('../helpers/mockVisio
 
 const request = require('supertest');
 const { mockVision } = require('../helpers/mockVision');
+const { registerUser, bearerHeader } = require('../helpers/auth');
 
-let app;
-beforeAll(() => {
+let app, token;
+beforeAll(async () => {
   app = require('../../src/app');
+  ({ token } = await registerUser(app));
 });
 
 // Payload de dieta de prueba
@@ -54,13 +56,13 @@ function makeFakePdfBuffer(weekLabel = '2024-06-03') {
 
 describe('POST /api/v1/pdf/diet — Validación', () => {
   it('rechaza sin dietData → 400', async () => {
-    const res = await request(app).post('/api/v1/pdf/diet').send({});
+    const res = await request(app).post('/api/v1/pdf/diet').set(bearerHeader(token)).send({});
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/dietData/i);
   });
 
   it('rechaza body vacío → 400', async () => {
-    const res = await request(app).post('/api/v1/pdf/diet').send({ userName: 'María' });
+    const res = await request(app).post('/api/v1/pdf/diet').set(bearerHeader(token)).send({ userName: 'María' });
     expect(res.status).toBe(400);
   });
 });
@@ -71,13 +73,13 @@ describe('POST /api/v1/pdf/diet — Servicio Python NO disponible', () => {
   });
 
   it('devuelve 503 con mensaje de error', async () => {
-    const res = await request(app).post('/api/v1/pdf/diet').send({ dietData: sampleDiet });
+    const res = await request(app).post('/api/v1/pdf/diet').set(bearerHeader(token)).send({ dietData: sampleDiet });
     expect(res.status).toBe(503);
     expect(res.body.error).toMatch(/pdf no disponible/i);
   });
 
   it('el Content-Type sigue siendo JSON en el error', async () => {
-    const res = await request(app).post('/api/v1/pdf/diet').send({ dietData: sampleDiet });
+    const res = await request(app).post('/api/v1/pdf/diet').set(bearerHeader(token)).send({ dietData: sampleDiet });
     expect(res.headers['content-type']).toMatch(/application\/json/i);
   });
 });
@@ -92,6 +94,7 @@ describe('POST /api/v1/pdf/diet — Servicio Python disponible', () => {
   it('devuelve 200 con el PDF binario', async () => {
     const res = await request(app)
       .post('/api/v1/pdf/diet')
+      .set(bearerHeader(token))
       .send({ dietData: sampleDiet })
       .buffer(true)
       .parse((res, callback) => {
@@ -105,6 +108,7 @@ describe('POST /api/v1/pdf/diet — Servicio Python disponible', () => {
   it('Content-Type es application/pdf', async () => {
     const res = await request(app)
       .post('/api/v1/pdf/diet')
+      .set(bearerHeader(token))
       .send({ dietData: sampleDiet });
     expect(res.headers['content-type']).toMatch(/application\/pdf/i);
   });
@@ -112,6 +116,7 @@ describe('POST /api/v1/pdf/diet — Servicio Python disponible', () => {
   it('Content-Disposition es "attachment" con filename que contiene la semana', async () => {
     const res = await request(app)
       .post('/api/v1/pdf/diet')
+      .set(bearerHeader(token))
       .send({ dietData: sampleDiet });
     const disposition = res.headers['content-disposition'];
     expect(disposition).toMatch(/attachment/i);
@@ -122,6 +127,7 @@ describe('POST /api/v1/pdf/diet — Servicio Python disponible', () => {
   it('el nombre del archivo es "fittracker-dieta-{weekStart}.pdf"', async () => {
     const res = await request(app)
       .post('/api/v1/pdf/diet')
+      .set(bearerHeader(token))
       .send({ dietData: sampleDiet });
     expect(res.headers['content-disposition'])
       .toMatch(/fittracker-dieta-2024-06-03\.pdf/i);
@@ -130,6 +136,7 @@ describe('POST /api/v1/pdf/diet — Servicio Python disponible', () => {
   it('Content-Length coincide con el tamaño del buffer', async () => {
     const res = await request(app)
       .post('/api/v1/pdf/diet')
+      .set(bearerHeader(token))
       .send({ dietData: sampleDiet });
     const contentLength = parseInt(res.headers['content-length'], 10);
     expect(contentLength).toBe(pdfBuffer.length);
@@ -138,6 +145,7 @@ describe('POST /api/v1/pdf/diet — Servicio Python disponible', () => {
   it('el body binario comienza con la firma mágica %PDF-', async () => {
     const res = await request(app)
       .post('/api/v1/pdf/diet')
+      .set(bearerHeader(token))
       .send({ dietData: sampleDiet })
       .buffer(true)
       .parse((res, cb) => {
@@ -152,6 +160,7 @@ describe('POST /api/v1/pdf/diet — Servicio Python disponible', () => {
   it('acepta userName personalizado', async () => {
     const res = await request(app)
       .post('/api/v1/pdf/diet')
+      .set(bearerHeader(token))
       .send({ dietData: sampleDiet, userName: 'María García' });
     expect(res.status).toBe(200);
     // Verificamos que visionClient recibió el userName
@@ -163,6 +172,7 @@ describe('POST /api/v1/pdf/diet — Servicio Python disponible', () => {
   it('userName por defecto es "Usuario" si no se envía', async () => {
     await request(app)
       .post('/api/v1/pdf/diet')
+      .set(bearerHeader(token))
       .send({ dietData: sampleDiet });
     expect(mockVision.generateDietPdf).toHaveBeenCalledWith(
       expect.anything(), 'Usuario'
@@ -178,6 +188,7 @@ describe('POST /api/v1/pdf/diet — Nombre de archivo fallback', () => {
     delete dietSinSemana.weekStart;
     const res = await request(app)
       .post('/api/v1/pdf/diet')
+      .set(bearerHeader(token))
       .send({ dietData: dietSinSemana });
     expect(res.headers['content-disposition']).toMatch(/semana/);
   });
@@ -189,6 +200,7 @@ describe('POST /api/v1/pdf/diet — Nombre de archivo fallback', () => {
     delete dietSnake.weekStart;
     const res = await request(app)
       .post('/api/v1/pdf/diet')
+      .set(bearerHeader(token))
       .send({ dietData: dietSnake });
     expect(res.headers['content-disposition']).toMatch(/2024-07-01/);
   });
@@ -201,6 +213,7 @@ describe('POST /api/v1/pdf/diet — visionClient recibe el payload correcto', ()
     mockVision.generateDietPdf.mockClear();
     await request(app)
       .post('/api/v1/pdf/diet')
+      .set(bearerHeader(token))
       .send({ dietData: sampleDiet, userName: 'Carlos Ruiz' });
     expect(mockVision.generateDietPdf).toHaveBeenCalledTimes(1);
     const [passedData, passedName] = mockVision.generateDietPdf.mock.calls[0];

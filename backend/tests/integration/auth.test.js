@@ -43,14 +43,14 @@ describe('POST /api/v1/auth/register', () => {
 
   it('rechaza email duplicado con 409', async () => {
     const email = `dup_${Date.now()}@test.com`;
-    await request(app).post('/api/v1/auth/register').send({ email, password: 'abc123' });
-    const res = await request(app).post('/api/v1/auth/register').send({ email, password: 'abc123' });
+    await request(app).post('/api/v1/auth/register').send({ email, password: 'Password123!' });
+    const res = await request(app).post('/api/v1/auth/register').send({ email, password: 'Password123!' });
     expect(res.status).toBe(409);
     expect(res.body.error).toMatch(/registrado/i);
   });
 
   it('rechaza sin email con 400', async () => {
-    const res = await request(app).post('/api/v1/auth/register').send({ password: 'abc123' });
+    const res = await request(app).post('/api/v1/auth/register').send({ password: 'abc12345' });
     expect(res.status).toBe(400);
   });
 
@@ -59,17 +59,17 @@ describe('POST /api/v1/auth/register', () => {
     expect(res.status).toBe(400);
   });
 
-  it('rechaza contraseña < 6 caracteres con 400', async () => {
+  it('rechaza contraseña < 8 caracteres con 400', async () => {
     const res = await request(app).post('/api/v1/auth/register').send({
-      email: `short_${Date.now()}@test.com`, password: '12345',
+      email: `short_${Date.now()}@test.com`, password: '1234567',
     });
     expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/6 car/i);
+    expect(res.body.error).toMatch(/8 car/i);
   });
 
   it('rechaza email con formato inválido con 400', async () => {
     const res = await request(app).post('/api/v1/auth/register').send({
-      email: 'notanemail', password: 'abc123',
+      email: 'notanemail', password: 'Password123!',
     });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/email inv/i);
@@ -77,7 +77,7 @@ describe('POST /api/v1/auth/register', () => {
 
   it('guarda goal, weight, age y gender correctamente', async () => {
     const res = await request(app).post('/api/v1/auth/register').send({
-      email: `full_${Date.now()}@test.com`, password: 'abc123',
+      email: `full_${Date.now()}@test.com`, password: 'Password123!',
       goal: 'lose', weight: 90, height: 180, age: 35, gender: 'male',
     });
     expect(res.status).toBe(201);
@@ -121,7 +121,7 @@ describe('POST /api/v1/auth/login', () => {
 
   it('rechaza email inexistente con 401 (no 404 — timing safe)', async () => {
     const res = await request(app).post('/api/v1/auth/login').send({
-      email: 'ghost@nowhere.com', password: 'abc123',
+      email: 'ghost@nowhere.com', password: 'abc12345',
     });
     expect(res.status).toBe(401);
   });
@@ -214,7 +214,7 @@ describe('PUT /api/v1/auth/profile', () => {
       .set(bearerHeader(token))
       .send({ weight: 99 });
     expect(res.status).toBe(200);
-    expect(res.body.name).toBe('Nombre Fijo'); // no se sobreescribe
+    expect(res.body.name).toBe('Nombre Fijo');
     expect(res.body.weight).toBe(99);
   });
 
@@ -237,7 +237,7 @@ describe('Chat history', () => {
       .get('/api/v1/auth/chat-history')
       .set(bearerHeader(token));
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
   });
 
   it('POST /chat-history guarda mensajes y GET los devuelve', async () => {
@@ -254,10 +254,8 @@ describe('Chat history', () => {
       .get('/api/v1/auth/chat-history')
       .set(bearerHeader(token));
     expect(res.status).toBe(200);
-    expect(res.body.length).toBeGreaterThanOrEqual(2);
-    // SQLite datetime('now') tiene granularidad de 1s → el orden puede variar
-    // cuando múltiples filas se insertan en el mismo segundo.
-    const roles = res.body.map(m => m.role);
+    expect(res.body.data.length).toBeGreaterThanOrEqual(2);
+    const roles = res.body.data.map(m => m.rol);
     expect(roles).toContain('user');
     expect(roles).toContain('assistant');
   });
@@ -268,7 +266,7 @@ describe('Chat history', () => {
       .set(bearerHeader(token))
       .send({ messages: [{ role: '', content: '' }, { role: 'user', content: 'válido' }] });
     expect(res.status).toBe(200);
-    expect(res.body.saved).toBe(2); // guarda los 2 (filtrado en DB constraint)
+    expect(res.body.saved).toBe(1);
   });
 });
 
@@ -295,20 +293,20 @@ describe('Workout logs', () => {
     expect(res.body.id).toBeGreaterThan(0);
   });
 
-  it('GET /workout-logs devuelve los logs con exercises parseado', async () => {
+  it('GET /workout-logs devuelve los logs con ejercicios_json parseado', async () => {
     const res = await request(app)
       .get('/api/v1/auth/workout-logs')
       .set(bearerHeader(token));
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    expect(Array.isArray(res.body[0].exercises)).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(Array.isArray(res.body.data[0]?.ejercicios_json)).toBe(true);
   });
 
   it('devuelve máximo 60 logs', async () => {
     const res = await request(app)
       .get('/api/v1/auth/workout-logs')
       .set(bearerHeader(token));
-    expect(res.body.length).toBeLessThanOrEqual(60);
+    expect(res.body.data.length).toBeLessThanOrEqual(60);
   });
 });
 
@@ -334,12 +332,12 @@ describe('Diet logs', () => {
     expect(res.body.id).toBeGreaterThan(0);
   });
 
-  it('GET /diet-logs devuelve los logs con meals parseado', async () => {
+  it('GET /diet-logs devuelve los logs con comidas_json parseado', async () => {
     const res = await request(app)
       .get('/api/v1/auth/diet-logs')
       .set(bearerHeader(token));
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body[0].meals)).toBe(true);
+    expect(Array.isArray(res.body.data[0]?.comidas_json)).toBe(true);
   });
 });
 
@@ -376,7 +374,7 @@ describe('Progress logs', () => {
       .get('/api/v1/auth/progress-logs')
       .set(bearerHeader(token));
     expect(res.status).toBe(200);
-    expect(res.body.length).toBeGreaterThan(0);
+    expect(res.body.data.length).toBeGreaterThan(0);
   });
 });
 
@@ -414,13 +412,13 @@ describe('AI Suggestions', () => {
       .get('/api/v1/auth/ai-suggestions')
       .set(bearerHeader(token));
     expect(res.status).toBe(200);
-    expect(res.body.length).toBeGreaterThan(0);
+    expect(res.body.data.length).toBeGreaterThan(0);
   });
 
   it('devuelve máximo 30 sugerencias', async () => {
     const res = await request(app)
       .get('/api/v1/auth/ai-suggestions')
       .set(bearerHeader(token));
-    expect(res.body.length).toBeLessThanOrEqual(30);
+    expect(res.body.data.length).toBeLessThanOrEqual(30);
   });
 });

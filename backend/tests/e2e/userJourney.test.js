@@ -2,14 +2,8 @@
 
 /**
  * E2E — Flujo completo de usuario.
- *
- * Simula el ciclo de vida de un usuario real:
- * registro → login → actualización de perfil → registro de peso →
- * consulta de métricas → generación de rutina → generación de dieta →
- * sesión de repeticiones → historial → logout (token inválido)
- *
- * Este test no usa mocks parciales: todo pasa por SQLite :memory: real.
- * Solo mockeamos postgres y visionClient porque son servicios externos.
+ * Simula el ciclo de vida real: registro → login → perfil → progreso →
+ * métricas → rutina → dieta → sesión de reps → historial → logout
  */
 
 jest.mock('../../src/db/postgres', () => require('../helpers/mockPostgres').mockPg);
@@ -97,23 +91,26 @@ describe('Flujo completo de usuario — "María fitness journey"', () => {
   // ── 6. Consulta métricas físicas ──────────────────────────────────────────
 
   it('6. Consulta sus métricas físicas (BMI, BMR, TDEE)', async () => {
-    const res = await request(app).post('/api/v1/progress/metrics').send({
-      userId: String(userId),
-      weight: 72.5, heightCm: 165, age: 32,
-      gender: 'female', activityLevel: 'light', goal: 'maintain',
-    });
+    const res = await request(app)
+      .post('/api/v1/progress/metrics')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        weight: 72.5, heightCm: 165, age: 32,
+        gender: 'female', activityLevel: 'light', goal: 'maintain',
+      });
     expect(res.status).toBe(200);
-    expect(res.body.bmi).toBeLessThan(30);          // No es obesidad
-    expect(res.body.calorie_target).toBe(res.body.tdee); // maintain
+    expect(res.body.bmi).toBeLessThan(30);
+    expect(res.body.calorie_target).toBe(res.body.tdee);
     expect(res.body.bmr).toBeGreaterThan(1200);
   });
 
   // ── 7. Genera su rutina de entrenamiento ──────────────────────────────────
 
   it('7. Genera una rutina de mantenimiento', async () => {
-    const res = await request(app).post('/api/v1/routines/generate').send({
-      userId: String(userId), goal: 'maintain',
-    });
+    const res = await request(app)
+      .post('/api/v1/routines/generate')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ goal: 'maintain' });
     expect(res.status).toBe(200);
     expect(res.body.weeklyDays).toBe(3);
     expect(res.body.source).toBe('local');
@@ -123,9 +120,10 @@ describe('Flujo completo de usuario — "María fitness journey"', () => {
   // ── 8. Genera su plan de dieta ────────────────────────────────────────────
 
   it('8. Genera un plan de dieta para la semana', async () => {
-    const res = await request(app).post('/api/v1/diets/generate').send({
-      userId: String(userId), weekStart: '2024-04-15', goal: 'maintain',
-    });
+    const res = await request(app)
+      .post('/api/v1/diets/generate')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ weekStart: '2024-04-15', goal: 'maintain' });
     expect(res.status).toBe(200);
     expect(res.body.dailyCalorieTarget).toBe(2100);
     expect(res.body.days).toHaveLength(7);
@@ -153,9 +151,10 @@ describe('Flujo completo de usuario — "María fitness journey"', () => {
   // ── 10. Inicia sesión de repeticiones (modo offline) ─────────────────────
 
   it('10. Inicia una sesión de rep counting en modo offline', async () => {
-    const res = await request(app).post('/api/v1/reps/sessions').send({
-      userId: String(userId), exerciseType: 'squat',
-    });
+    const res = await request(app)
+      .post('/api/v1/reps/sessions')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ exerciseType: 'squat' });
     expect(res.status).toBe(200);
     expect(res.body.sessionId).toMatch(/^local_/);
     expect(res.body.fallback).toBe(true);
@@ -164,6 +163,7 @@ describe('Flujo completo de usuario — "María fitness journey"', () => {
   it('10b. Completa la sesión y persiste los resultados', async () => {
     const res = await request(app)
       .post('/api/v1/reps/sessions/local_999999999/complete')
+      .set('Authorization', `Bearer ${token}`)
       .send({ totalReps: 36, totalSets: 3, exerciseType: 'squat', caloriesBurned: 90, avgFormScore: 0.92 });
     expect(res.status).toBe(200);
     expect(res.body.totalReps).toBe(36);
@@ -177,7 +177,7 @@ describe('Flujo completo de usuario — "María fitness journey"', () => {
       .get('/api/v1/auth/workout-logs')
       .set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(200);
-    expect(res.body.some(l => l.routine_name === 'Full body A')).toBe(true);
+    expect(res.body.data.some(l => l.nombre_rutina === 'Full body A')).toBe(true);
   });
 
   // ── 12. Guarda un log de dieta ────────────────────────────────────────────
@@ -219,7 +219,8 @@ describe('Flujo completo de usuario — "María fitness journey"', () => {
   it('14. El servidor reporta estado saludable', async () => {
     const res = await request(app).get('/health');
     expect(res.status).toBe(200);
-    expect(res.body.checks.sqlite).toBe('ok');
+    expect(res.body.checks).toBeDefined();
+    expect(res.body.checks.node).toBe('ok');
   });
 
   // ── 15. Intento de acceso con token inválido (simulación de logout) ───────
@@ -235,15 +236,15 @@ describe('Flujo completo de usuario — "María fitness journey"', () => {
 
   it('16. Un intruso no puede ver los logs de María con otro token', async () => {
     const intruder = await request(app).post('/api/v1/auth/register').send({
-      email: `intruder_${Date.now()}@test.com`, password: 'intruder123',
+      email: `intruder_${Date.now()}@test.com`, password: 'intruder123!',
     });
-    const intruderToken = intruder.body.token;
+    const intruderToken = intruder.body.accessToken;
 
     const res = await request(app)
       .get('/api/v1/auth/workout-logs')
       .set('Authorization', `Bearer ${intruderToken}`);
 
-    const names = res.body.map(l => l.routine_name);
+    const names = (res.body.data || []).map(l => l.nombre_rutina);
     expect(names).not.toContain('Full body A');
   });
 });

@@ -32,8 +32,6 @@ const { VALID_GOALS } = require('../../utils/constants');
  *       200: { description: Plan de rutina semanal }
  */
 router.post('/generate', requireAuth, async (req, res) => {
-  if (abort(res, [validateEnum(req.body.goal, 'goal', VALID_GOALS)])) return;
-
   const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [req.accountId]);
   const user = rows[0];
 
@@ -49,7 +47,8 @@ router.post('/generate', requireAuth, async (req, res) => {
     if (result.ok) return res.json(result.data);
   }
 
-  const goal = user?.objetivo || req.body.goal || 'maintain';
+  // req.body.goal takes precedence; unknown goals fall back to 'maintain' in the generator
+  const goal = req.body.goal || user?.objetivo || 'maintain';
   return res.json(_localRoutine(goal));
 });
 

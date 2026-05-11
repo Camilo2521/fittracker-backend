@@ -29,12 +29,12 @@ router.post('/metrics', requireAuth, async (req, res) => {
   const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [userId]);
   const user = rows[0];
 
-  const weight   = user?.peso            || bodyWeight;
-  const height   = user?.altura_cm       || bodyHeight;
-  const age      = user?.edad            || bodyAge;
-  const gender   = user?.genero          || bodyGender   || 'male';
-  const activity = user?.nivel_actividad || bodyActivity || 'moderate';
-  const goal     = user?.objetivo        || bodyGoal     || 'maintain';
+  const weight   = bodyWeight  || user?.peso;
+  const height   = bodyHeight  || user?.altura_cm;
+  const age      = bodyAge     || user?.edad;
+  const gender   = bodyGender  || user?.genero          || 'male';
+  const activity = bodyActivity || user?.nivel_actividad || 'moderate';
+  const goal     = bodyGoal    || user?.objetivo        || 'maintain';
 
   if (!weight || !height || !age) {
     return res.status(422).json({

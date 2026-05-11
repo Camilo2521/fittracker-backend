@@ -4,6 +4,9 @@ jest.mock('../../src/db/postgres', () => require('../helpers/mockPostgres').mock
 jest.mock('../../src/services/visionClient', () => require('../helpers/mockVision').mockVision);
 
 const request = require('supertest');
+const { makeToken, bearerHeader } = require('../helpers/auth');
+
+const TOKEN = makeToken(1);
 
 let app;
 beforeAll(() => {
@@ -12,43 +15,48 @@ beforeAll(() => {
 
 describe('POST /api/v1/progress/metrics', () => {
 
-  describe('Validación de entrada', () => {
-    it('rechaza sin userId (400)', async () => {
+  describe('Autenticación', () => {
+    it('rechaza sin token (401)', async () => {
       const res = await request(app).post('/api/v1/progress/metrics').send({
         weight: 75, heightCm: 175, age: 30,
       });
-      expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/userId/i);
+      expect(res.status).toBe(401);
     });
+  });
 
+  describe('Validación de entrada', () => {
     it('rechaza perfil incompleto sin peso (422)', async () => {
-      const res = await request(app).post('/api/v1/progress/metrics').send({
-        userId: 'user-abc', heightCm: 175, age: 30,
-      });
+      const res = await request(app)
+        .post('/api/v1/progress/metrics')
+        .set(bearerHeader(TOKEN))
+        .send({ heightCm: 175, age: 30, gender: 'male', activityLevel: 'moderate', goal: 'maintain' });
       expect(res.status).toBe(422);
-      expect(res.body.missing).toContain('weight (current_weight)');
+      expect(res.body.missing).toContain('weight');
     });
 
     it('rechaza perfil incompleto sin altura (422)', async () => {
-      const res = await request(app).post('/api/v1/progress/metrics').send({
-        userId: 'user-abc', weight: 75, age: 30,
-      });
+      const res = await request(app)
+        .post('/api/v1/progress/metrics')
+        .set(bearerHeader(TOKEN))
+        .send({ weight: 75, age: 30, gender: 'male', activityLevel: 'moderate', goal: 'maintain' });
       expect(res.status).toBe(422);
       expect(res.body.missing).toContain('heightCm (height_cm)');
     });
 
     it('rechaza perfil incompleto sin edad (422)', async () => {
-      const res = await request(app).post('/api/v1/progress/metrics').send({
-        userId: 'user-abc', weight: 75, heightCm: 175,
-      });
+      const res = await request(app)
+        .post('/api/v1/progress/metrics')
+        .set(bearerHeader(TOKEN))
+        .send({ weight: 75, heightCm: 175, gender: 'male', activityLevel: 'moderate', goal: 'maintain' });
       expect(res.status).toBe(422);
       expect(res.body.missing).toContain('age');
     });
 
     it('lista todos los campos faltantes cuando faltan varios', async () => {
-      const res = await request(app).post('/api/v1/progress/metrics').send({
-        userId: 'user-abc',
-      });
+      const res = await request(app)
+        .post('/api/v1/progress/metrics')
+        .set(bearerHeader(TOKEN))
+        .send({ gender: 'male', activityLevel: 'moderate', goal: 'maintain' });
       expect(res.status).toBe(422);
       expect(res.body.missing.length).toBeGreaterThanOrEqual(2);
     });
@@ -57,17 +65,18 @@ describe('POST /api/v1/progress/metrics', () => {
   describe('Cálculos de métricas — hombre moderado, goal maintain', () => {
     let body;
     beforeAll(async () => {
-      const res = await request(app).post('/api/v1/progress/metrics').send({
-        userId: 'test-user-1', weight: 75, heightCm: 175, age: 30,
-        gender: 'male', activityLevel: 'moderate', goal: 'maintain',
-      });
+      const res = await request(app)
+        .post('/api/v1/progress/metrics')
+        .set(bearerHeader(TOKEN))
+        .send({ weight: 75, heightCm: 175, age: 30, gender: 'male', activityLevel: 'moderate', goal: 'maintain' });
       body = res.body;
     });
 
     it('devuelve 200', async () => {
-      const res = await request(app).post('/api/v1/progress/metrics').send({
-        userId: 'test-user-1', weight: 75, heightCm: 175, age: 30,
-      });
+      const res = await request(app)
+        .post('/api/v1/progress/metrics')
+        .set(bearerHeader(TOKEN))
+        .send({ weight: 75, heightCm: 175, age: 30, gender: 'male', activityLevel: 'moderate', goal: 'maintain' });
       expect(res.status).toBe(200);
     });
 
@@ -92,10 +101,10 @@ describe('POST /api/v1/progress/metrics', () => {
 
   describe('Objetivo "lose" — déficit calórico', () => {
     it('calorie_target = tdee - 400', async () => {
-      const res = await request(app).post('/api/v1/progress/metrics').send({
-        userId: 'user-lose', weight: 90, heightCm: 180, age: 35,
-        gender: 'male', activityLevel: 'moderate', goal: 'lose',
-      });
+      const res = await request(app)
+        .post('/api/v1/progress/metrics')
+        .set(bearerHeader(TOKEN))
+        .send({ weight: 90, heightCm: 180, age: 35, gender: 'male', activityLevel: 'moderate', goal: 'lose' });
       expect(res.status).toBe(200);
       expect(res.body.calorie_target).toBe(res.body.tdee - 400);
     });
@@ -103,44 +112,36 @@ describe('POST /api/v1/progress/metrics', () => {
 
   describe('Objetivo "gain" — superávit calórico', () => {
     it('calorie_target = tdee + 300', async () => {
-      const res = await request(app).post('/api/v1/progress/metrics').send({
-        userId: 'user-gain', weight: 65, heightCm: 175, age: 25,
-        gender: 'male', activityLevel: 'active', goal: 'gain',
-      });
+      const res = await request(app)
+        .post('/api/v1/progress/metrics')
+        .set(bearerHeader(TOKEN))
+        .send({ weight: 65, heightCm: 175, age: 25, gender: 'male', activityLevel: 'active', goal: 'gain' });
       expect(res.status).toBe(200);
       expect(res.body.calorie_target).toBe(res.body.tdee + 300);
     });
   });
 
   describe('Diferencias por género', () => {
-    async function getMetrics(gender) {
-      const res = await request(app).post('/api/v1/progress/metrics').send({
-        userId: `user-gender-${gender}`, weight: 70, heightCm: 170,
-        age: 30, gender, activityLevel: 'moderate', goal: 'maintain',
-      });
-      return res.body;
-    }
-
     it('hombre tiene BMR > mujer con mismo perfil físico', async () => {
-      const male   = await getMetrics('male');
-      const female = await getMetrics('female');
-      expect(male.bmr).toBeGreaterThan(female.bmr);
+      const [maleRes, femaleRes] = await Promise.all([
+        request(app).post('/api/v1/progress/metrics').set(bearerHeader(TOKEN))
+          .send({ weight: 70, heightCm: 170, age: 30, gender: 'male', activityLevel: 'moderate', goal: 'maintain' }),
+        request(app).post('/api/v1/progress/metrics').set(bearerHeader(TOKEN))
+          .send({ weight: 70, heightCm: 170, age: 30, gender: 'female', activityLevel: 'moderate', goal: 'maintain' }),
+      ]);
+      expect(maleRes.body.bmr).toBeGreaterThan(femaleRes.body.bmr);
     });
   });
 
   describe('Niveles de actividad', () => {
-    const cases = [
-      ['sedentary', 1.2],
-      ['light',     1.375],
-      ['active',    1.725],
-      ['very_active',1.9],
-    ];
+    const levels = ['light', 'active', 'very_active'];
 
-    it.each(cases)('nivel "%s" produce TDEE mayor que sedentario', async (level) => {
-      if (level === 'sedentary') return;
+    it.each(levels)('nivel "%s" produce TDEE mayor que sedentario', async (level) => {
       const [sedRes, levelRes] = await Promise.all([
-        request(app).post('/api/v1/progress/metrics').send({ userId: `u-sed`, weight: 75, heightCm: 175, age: 30, gender: 'male', activityLevel: 'sedentary', goal: 'maintain' }),
-        request(app).post('/api/v1/progress/metrics').send({ userId: `u-${level}`, weight: 75, heightCm: 175, age: 30, gender: 'male', activityLevel: level, goal: 'maintain' }),
+        request(app).post('/api/v1/progress/metrics').set(bearerHeader(TOKEN))
+          .send({ weight: 75, heightCm: 175, age: 30, gender: 'male', activityLevel: 'sedentary', goal: 'maintain' }),
+        request(app).post('/api/v1/progress/metrics').set(bearerHeader(TOKEN))
+          .send({ weight: 75, heightCm: 175, age: 30, gender: 'male', activityLevel: level, goal: 'maintain' }),
       ]);
       expect(levelRes.body.tdee).toBeGreaterThan(sedRes.body.tdee);
     });
@@ -148,9 +149,10 @@ describe('POST /api/v1/progress/metrics', () => {
 
   describe('Estructura de respuesta', () => {
     it('devuelve bmi, bmr, tdee y calorie_target', async () => {
-      const res = await request(app).post('/api/v1/progress/metrics').send({
-        userId: 'struct-test', weight: 70, heightCm: 175, age: 28,
-      });
+      const res = await request(app)
+        .post('/api/v1/progress/metrics')
+        .set(bearerHeader(TOKEN))
+        .send({ weight: 70, heightCm: 175, age: 28, gender: 'male', activityLevel: 'moderate', goal: 'maintain' });
       expect(res.status).toBe(200);
       expect(res.body).toHaveProperty('bmi');
       expect(res.body).toHaveProperty('bmr');
@@ -159,9 +161,10 @@ describe('POST /api/v1/progress/metrics', () => {
     });
 
     it('todos los valores son números positivos', async () => {
-      const res = await request(app).post('/api/v1/progress/metrics').send({
-        userId: 'positives-test', weight: 70, heightCm: 175, age: 28,
-      });
+      const res = await request(app)
+        .post('/api/v1/progress/metrics')
+        .set(bearerHeader(TOKEN))
+        .send({ weight: 70, heightCm: 175, age: 28, gender: 'male', activityLevel: 'moderate', goal: 'maintain' });
       for (const key of ['bmi', 'bmr', 'tdee', 'calorie_target']) {
         expect(res.body[key]).toBeGreaterThan(0);
       }
@@ -169,10 +172,17 @@ describe('POST /api/v1/progress/metrics', () => {
   });
 });
 
-describe('GET /api/v1/progress/:userId/metrics', () => {
-  it('devuelve array (vacío si postgres no disponible)', async () => {
-    const res = await request(app).get('/api/v1/progress/user-123/metrics');
+describe('GET /api/v1/progress/metrics', () => {
+  it('rechaza sin token (401)', async () => {
+    const res = await request(app).get('/api/v1/progress/metrics');
+    expect(res.status).toBe(401);
+  });
+
+  it('devuelve paginación vacía cuando postgres no disponible', async () => {
+    const res = await request(app)
+      .get('/api/v1/progress/metrics')
+      .set(bearerHeader(TOKEN));
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
   });
 });

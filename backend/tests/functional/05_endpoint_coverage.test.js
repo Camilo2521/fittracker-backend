@@ -166,15 +166,15 @@ describe('Estructura de respuestas de error — siempre JSON con campo "error"',
   const errorCases = [
     { desc: 'registro sin email',       method: 'post', path: '/api/v1/auth/register',  body: { password: 'abc123' }, expectedStatus: 400 },
     { desc: 'login sin campos',         method: 'post', path: '/api/v1/auth/login',     body: {}, expectedStatus: 400 },
-    { desc: 'progress sin userId',      method: 'post', path: '/api/v1/progress/metrics', body: { weight: 70 }, expectedStatus: 400 },
-    { desc: 'routines sin userId',      method: 'post', path: '/api/v1/routines/generate', body: {}, expectedStatus: 400 },
-    { desc: 'diets sin userId',         method: 'post', path: '/api/v1/diets/generate', body: { weekStart: '2024-01-01' }, expectedStatus: 400 },
-    { desc: 'diets doc sin title',      method: 'post', path: '/api/v1/diets/documents', body: { content: 'x' }, expectedStatus: 400 },
-    { desc: 'pdf sin dietData',         method: 'post', path: '/api/v1/pdf/diet',       body: {}, expectedStatus: 400 },
-    { desc: 'reps sin userId',          method: 'post', path: '/api/v1/reps/sessions',  body: { exerciseType: 'squat' }, expectedStatus: 400 },
+    { desc: 'progress sin userId',      method: 'post', path: '/api/v1/progress/metrics', body: { weight: 70 }, expectedStatus: 401 },
+    { desc: 'routines sin userId',      method: 'post', path: '/api/v1/routines/generate', body: {}, expectedStatus: 401 },
+    { desc: 'diets sin userId',         method: 'post', path: '/api/v1/diets/generate', body: { weekStart: '2024-01-01' }, expectedStatus: 401 },
+    { desc: 'diets doc sin title',      method: 'post', path: '/api/v1/diets/documents', body: { content: 'x' }, expectedStatus: 401 },
+    { desc: 'pdf sin dietData',         method: 'post', path: '/api/v1/pdf/diet',       body: {}, expectedStatus: 401 },
+    { desc: 'reps sin userId',          method: 'post', path: '/api/v1/reps/sessions',  body: { exerciseType: 'squat' }, expectedStatus: 401 },
     { desc: 'ai/chat messages vacíos',  method: 'post', path: '/api/v1/ai/chat',        body: { messages: [] }, expectedStatus: 400 },
-    { desc: 'ai body-scan sin imagen',  method: 'post', path: '/api/v1/ai/body-scan',   body: {}, expectedStatus: 400 },
-    { desc: 'ai memory delete sin id',  method: 'delete', path: '/api/v1/ai/memory/k', body: {}, expectedStatus: 400 },
+    { desc: 'ai body-scan sin imagen',  method: 'post', path: '/api/v1/ai/body-scan',   body: {}, expectedStatus: 501 },
+    { desc: 'ai memory delete sin id',  method: 'delete', path: '/api/v1/ai/memory/k', body: {}, expectedStatus: 401 },
     { desc: 'ruta no registrada',       method: 'get',  path: '/api/v1/nonexistent',   body: null, expectedStatus: 404 },
   ];
 
@@ -310,26 +310,26 @@ describe('Límites de resultados — no se devuelven conjuntos infinitos', () =>
 
   it('workout-logs devuelve máximo 60', async () => {
     const res = await request(app).get('/api/v1/auth/workout-logs').set(bearerHeader(token));
-    expect(res.body.length).toBeLessThanOrEqual(60);
+    expect(res.body.data.length).toBeLessThanOrEqual(60);
   });
 
   it('diet-logs devuelve máximo 60', async () => {
     const res = await request(app).get('/api/v1/auth/diet-logs').set(bearerHeader(token));
-    expect(res.body.length).toBeLessThanOrEqual(60);
+    expect(res.body.data.length).toBeLessThanOrEqual(60);
   });
 
   it('progress-logs devuelve máximo 90', async () => {
     const res = await request(app).get('/api/v1/auth/progress-logs').set(bearerHeader(token));
-    expect(res.body.length).toBeLessThanOrEqual(90);
+    expect(res.body.data.length).toBeLessThanOrEqual(90);
   });
 
   it('ai-suggestions devuelve máximo 30', async () => {
     const res = await request(app).get('/api/v1/auth/ai-suggestions').set(bearerHeader(token));
-    expect(res.body.length).toBeLessThanOrEqual(30);
+    expect(res.body.data.length).toBeLessThanOrEqual(30);
   });
 
   it('chat-history devuelve máximo 40 mensajes', async () => {
     const res = await request(app).get('/api/v1/auth/chat-history').set(bearerHeader(token));
-    expect(res.body.length).toBeLessThanOrEqual(40);
+    expect(res.body.data.length).toBeLessThanOrEqual(40);
   });
 });

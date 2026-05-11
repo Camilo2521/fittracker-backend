@@ -56,7 +56,7 @@ describe('Tracking de peso — precisión y persistencia', () => {
     }
     const logs = await request(app).get('/api/v1/auth/progress-logs')
       .set(bearerHeader(token));
-    expect(logs.body.length).toBeGreaterThanOrEqual(5);
+    expect(logs.body.data.length).toBeGreaterThanOrEqual(5);
   });
 
   it('el último peso registrado prevalece en el perfil', async () => {
@@ -78,24 +78,28 @@ describe('Tracking de peso — precisión y persistencia', () => {
       .set(bearerHeader(token))
       .send({ date: '2024-04-22', weight: 74.5, bodyFat: 18.5, chestCm: 99, waistCm: 86, hipCm: 96, armCm: 35 });
     const logs = await request(app).get('/api/v1/auth/progress-logs').set(bearerHeader(token));
-    const today = logs.body.find(l => l.date === '2024-04-22');
-    expect(today.weight).toBe(74.5);
-    expect(today.body_fat).toBe(18.5);
-    expect(today.chest_cm).toBe(99);
-    expect(today.waist_cm).toBe(86);
-    expect(today.hip_cm).toBe(96);
-    expect(today.arm_cm).toBe(35);
+    const today = logs.body.data.find(l => l.fecha === '2024-04-22');
+    expect(today.peso).toBe(74.5);
+    expect(today.grasa_corporal).toBe(18.5);
+    expect(today.pecho_cm).toBe(99);
+    expect(today.cintura_cm).toBe(86);
+    expect(today.cadera_cm).toBe(96);
+    expect(today.brazo_cm).toBe(35);
   });
 
   it('el historial de progreso devuelve máximo 90 registros', async () => {
     const logs = await request(app).get('/api/v1/auth/progress-logs').set(bearerHeader(token));
-    expect(logs.body.length).toBeLessThanOrEqual(90);
+    expect(logs.body.data.length).toBeLessThanOrEqual(90);
   });
 });
 
 // ── 2. Precisión de métricas BMI / BMR / TDEE ─────────────────────────────────
 
 describe('Precisión de métricas físicas (Mifflin-St Jeor)', () => {
+  let token;
+  beforeAll(async () => {
+    ({ token } = await registerUser(app));
+  });
 
   const cases = [
     // [desc, input, expectedBMI, expectedBMR, expectedTDEE_moderate, goal, expectedTarget]
@@ -129,7 +133,9 @@ describe('Precisión de métricas físicas (Mifflin-St Jeor)', () => {
     describe(tc.desc, () => {
       let body;
       beforeAll(async () => {
-        const res = await request(app).post('/api/v1/progress/metrics').send(tc.input);
+        const res = await request(app).post('/api/v1/progress/metrics')
+          .set(bearerHeader(token))
+          .send(tc.input);
         body = res.body;
       });
 
@@ -159,23 +165,23 @@ describe('Precisión de métricas físicas (Mifflin-St Jeor)', () => {
   }
 
   it('TDEE es siempre mayor que BMR', async () => {
-    const res = await request(app).post('/api/v1/progress/metrics').send({
-      userId: 'verify', weight: 70, heightCm: 170, age: 28,
-    });
+    const res = await request(app).post('/api/v1/progress/metrics')
+      .set(bearerHeader(token))
+      .send({ weight: 70, heightCm: 170, age: 28 });
     expect(res.body.tdee).toBeGreaterThan(res.body.bmr);
   });
 
   it('calorie_target lose es siempre menor que TDEE', async () => {
-    const res = await request(app).post('/api/v1/progress/metrics').send({
-      userId: 'lose_check', weight: 70, heightCm: 170, age: 28, goal: 'lose',
-    });
+    const res = await request(app).post('/api/v1/progress/metrics')
+      .set(bearerHeader(token))
+      .send({ weight: 70, heightCm: 170, age: 28, goal: 'lose' });
     expect(res.body.calorie_target).toBeLessThan(res.body.tdee);
   });
 
   it('calorie_target gain es siempre mayor que TDEE', async () => {
-    const res = await request(app).post('/api/v1/progress/metrics').send({
-      userId: 'gain_check', weight: 70, heightCm: 170, age: 28, goal: 'gain',
-    });
+    const res = await request(app).post('/api/v1/progress/metrics')
+      .set(bearerHeader(token))
+      .send({ weight: 70, heightCm: 170, age: 28, goal: 'gain' });
     expect(res.body.calorie_target).toBeGreaterThan(res.body.tdee);
   });
 });
@@ -200,11 +206,11 @@ describe('Tracking de entrenamientos — fidelidad de datos', () => {
       .send({ date: '2024-05-01', routineName: 'Push Pull Legs', exercises, durationMin: 65, notes: 'PR en sentadilla' });
     expect(post.status).toBe(200);
     const logs = await request(app).get('/api/v1/auth/workout-logs').set(bearerHeader(token));
-    const log  = logs.body.find(l => l.routine_name === 'Push Pull Legs');
+    const log  = logs.body.data.find(l => l.nombre_rutina === 'Push Pull Legs');
     expect(log).toBeDefined();
-    expect(log.exercises).toEqual(exercises);
-    expect(log.duration_min).toBe(65);
-    expect(log.notes).toBe('PR en sentadilla');
+    expect(log.ejercicios_json).toEqual(exercises);
+    expect(log.duracion_min).toBe(65);
+    expect(log.notas).toBe('PR en sentadilla');
   });
 
   it('ejercicios vacíos se almacenan como array vacío', async () => {
@@ -212,9 +218,9 @@ describe('Tracking de entrenamientos — fidelidad de datos', () => {
       .set(bearerHeader(token))
       .send({ date: '2024-05-02', routineName: 'Cardio ligero', exercises: [] });
     const logs = await request(app).get('/api/v1/auth/workout-logs').set(bearerHeader(token));
-    const log  = logs.body.find(l => l.routine_name === 'Cardio ligero');
-    expect(Array.isArray(log.exercises)).toBe(true);
-    expect(log.exercises).toHaveLength(0);
+    const log  = logs.body.data.find(l => l.nombre_rutina === 'Cardio ligero');
+    expect(Array.isArray(log.ejercicios_json)).toBe(true);
+    expect(log.ejercicios_json).toHaveLength(0);
   });
 
   it('fecha por defecto es la fecha actual si no se envía', async () => {
@@ -223,8 +229,8 @@ describe('Tracking de entrenamientos — fidelidad de datos', () => {
       .send({ routineName: 'Sin fecha', exercises: [] });
     expect(post.status).toBe(200);
     const logs = await request(app).get('/api/v1/auth/workout-logs').set(bearerHeader(token));
-    const log  = logs.body.find(l => l.routine_name === 'Sin fecha');
-    expect(log.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const log  = logs.body.data.find(l => l.nombre_rutina === 'Sin fecha');
+    expect(log.fecha).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   it('múltiples entrenamientos en el mismo día se almacenan todos', async () => {
@@ -234,7 +240,7 @@ describe('Tracking de entrenamientos — fidelidad de datos', () => {
         .send({ date: '2024-05-10', routineName: `Sesión ${i}`, exercises: [] });
     }
     const logs = await request(app).get('/api/v1/auth/workout-logs').set(bearerHeader(token));
-    const sesiones = logs.body.filter(l => l.date === '2024-05-10');
+    const sesiones = logs.body.data.filter(l => l.fecha === '2024-05-10');
     expect(sesiones.length).toBeGreaterThanOrEqual(3);
   });
 });
@@ -259,8 +265,8 @@ describe('Tracking de nutrición — fidelidad de datos', () => {
       .send({ date: '2024-05-01', planName: 'Plan pérdida', meals, totalKcal: 1600 });
     expect(post.status).toBe(200);
     const logs = await request(app).get('/api/v1/auth/diet-logs').set(bearerHeader(token));
-    const log  = logs.body.find(l => l.plan_name === 'Plan pérdida');
-    expect(log.meals).toEqual(meals);
+    const log  = logs.body.data.find(l => l.nombre_plan === 'Plan pérdida');
+    expect(log.comidas_json).toEqual(meals);
     expect(log.total_kcal).toBe(1600);
   });
 
@@ -269,8 +275,8 @@ describe('Tracking de nutrición — fidelidad de datos', () => {
       .set(bearerHeader(token))
       .send({ date: '2024-06-15', planName: 'Log de prueba', meals: [], totalKcal: 0 });
     const logs = await request(app).get('/api/v1/auth/diet-logs').set(bearerHeader(token));
-    const log  = logs.body.find(l => l.plan_name === 'Log de prueba');
-    expect(log.date).toBe('2024-06-15');
+    const log  = logs.body.data.find(l => l.nombre_plan === 'Log de prueba');
+    expect(log.fecha).toBe('2024-06-15');
   });
 
   it('notas del plan se almacenan si se envían', async () => {
@@ -278,19 +284,23 @@ describe('Tracking de nutrición — fidelidad de datos', () => {
       .set(bearerHeader(token))
       .send({ date: '2024-06-16', planName: 'Con notas', meals: [], notes: 'Día difícil, comí fuera' });
     const logs = await request(app).get('/api/v1/auth/diet-logs').set(bearerHeader(token));
-    const log  = logs.body.find(l => l.plan_name === 'Con notas');
-    expect(log.notes).toBe('Día difícil, comí fuera');
+    const log  = logs.body.data.find(l => l.nombre_plan === 'Con notas');
+    expect(log.notas).toBe('Día difícil, comí fuera');
   });
 });
 
 // ── 5. Distribución calórica de dietas generadas ──────────────────────────────
 
 describe('Distribución calórica de dietas generadas — validación matemática', () => {
+  let token;
+  beforeAll(async () => {
+    ({ token } = await registerUser(app));
+  });
 
   it('plan "lose": las calorías de comidas suman ~100% del objetivo diario', async () => {
-    const res = await request(app).post('/api/v1/diets/generate').send({
-      userId: 'calorie_check', weekStart: '2024-05-01', goal: 'lose',
-    });
+    const res = await request(app).post('/api/v1/diets/generate')
+      .set(bearerHeader(token))
+      .send({ weekStart: '2024-05-01', goal: 'lose' });
     const day  = res.body.days[0];
     const sum  = day.meals.reduce((acc, m) => acc + m.calories, 0);
     const pct  = sum / res.body.dailyCalorieTarget;
@@ -300,17 +310,17 @@ describe('Distribución calórica de dietas generadas — validación matemátic
   });
 
   it('plan "gain": las calorías diarias coinciden con el objetivo', async () => {
-    const res = await request(app).post('/api/v1/diets/generate').send({
-      userId: 'gain_calorie', weekStart: '2024-05-01', goal: 'gain',
-    });
+    const res = await request(app).post('/api/v1/diets/generate')
+      .set(bearerHeader(token))
+      .send({ weekStart: '2024-05-01', goal: 'gain' });
     expect(res.body.dailyCalorieTarget).toBe(2600);
     res.body.days.forEach(d => expect(d.totalCalories).toBe(2600));
   });
 
   it('plan "maintain": todas las comidas tienen calories > 0', async () => {
-    const res = await request(app).post('/api/v1/diets/generate').send({
-      userId: 'maintain_calorie', weekStart: '2024-05-01', goal: 'maintain',
-    });
+    const res = await request(app).post('/api/v1/diets/generate')
+      .set(bearerHeader(token))
+      .send({ weekStart: '2024-05-01', goal: 'maintain' });
     res.body.days.forEach(day => {
       day.meals.forEach(meal => {
         expect(meal.calories).toBeGreaterThan(0);
@@ -356,20 +366,24 @@ describe('Cálculo de hidratación — fórmula 0.033 L/kg', () => {
 // ── 7. Rutinas generadas — consistencia de datos ──────────────────────────────
 
 describe('Rutinas generadas — consistencia y completitud', () => {
+  let token;
+  beforeAll(async () => {
+    ({ token } = await registerUser(app));
+  });
 
   it.each(['lose', 'gain', 'maintain'])('rutina "%s" tiene días únicos', async (goal) => {
-    const res = await request(app).post('/api/v1/routines/generate').send({
-      userId: `unique_days_${goal}`, goal,
-    });
+    const res = await request(app).post('/api/v1/routines/generate')
+      .set(bearerHeader(token))
+      .send({ goal });
     const days = res.body.days.map(d => d.day);
     const unique = new Set(days);
     expect(unique.size).toBe(days.length); // sin repetidos
   });
 
   it('los ejercicios son strings no vacíos', async () => {
-    const res = await request(app).post('/api/v1/routines/generate').send({
-      userId: 'ex_quality', goal: 'gain',
-    });
+    const res = await request(app).post('/api/v1/routines/generate')
+      .set(bearerHeader(token))
+      .send({ goal: 'gain' });
     res.body.days.forEach(day => {
       day.exercises.forEach(ex => {
         expect(typeof ex).toBe('string');
@@ -379,9 +393,9 @@ describe('Rutinas generadas — consistencia y completitud', () => {
   });
 
   it('las notas son un string informativo', async () => {
-    const res = await request(app).post('/api/v1/routines/generate').send({
-      userId: 'notes_check', goal: 'lose',
-    });
+    const res = await request(app).post('/api/v1/routines/generate')
+      .set(bearerHeader(token))
+      .send({ goal: 'lose' });
     expect(typeof res.body.notes).toBe('string');
     expect(res.body.notes.length).toBeGreaterThan(10);
   });

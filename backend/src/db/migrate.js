@@ -12,7 +12,7 @@ async function _migracionesExiste(client) {
   const { rows } = await client.query(
     `SELECT to_regclass('public._migraciones') AS t`
   );
-  return !!rows[0].t;
+  return !!rows[0]?.t;
 }
 
 async function getApplied(client) {
@@ -59,6 +59,11 @@ async function applyMigration(client, filename, sql) {
 }
 
 async function runMigrations() {
+  if (!process.env.DATABASE_URL && !process.env.PG_CONNECTION_STRING) {
+    console.log('[migrate] Sin DATABASE_URL — omitiendo migraciones.');
+    return;
+  }
+
   if (!fs.existsSync(MIGRATIONS_DIR)) {
     console.warn('[migrate] Directorio de migraciones no encontrado:', MIGRATIONS_DIR);
     return;

@@ -1,6 +1,19 @@
 'use strict';
 
+const jwt     = require('jsonwebtoken');
 const request = require('supertest');
+
+/**
+ * Genera un JWT válido para tests sin necesitar llamar al endpoint de registro.
+ * Útil cuando solo se necesita pasar requireAuth sin un flujo de registro completo.
+ */
+function makeToken(userId = 1, overrides = {}) {
+  return jwt.sign(
+    { id: userId, email: `user_${userId}@test.com`, name: 'Test User', ...overrides },
+    process.env.JWT_SECRET,
+    { expiresIn: '1h' }
+  );
+}
 
 /**
  * Registra un usuario de prueba y devuelve { token, user }.
@@ -33,4 +46,4 @@ function bearerHeader(token) {
   return { Authorization: `Bearer ${token}` };
 }
 
-module.exports = { registerUser, bearerHeader };
+module.exports = { registerUser, bearerHeader, makeToken };

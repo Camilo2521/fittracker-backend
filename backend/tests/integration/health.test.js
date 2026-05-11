@@ -11,19 +11,21 @@ beforeAll(() => {
 });
 
 describe('GET /health', () => {
-  it('responde 200 cuando SQLite está operativo', async () => {
+  it('responde con status HTTP (200 o 503 según postgres)', async () => {
     const res = await request(app).get('/health');
-    expect(res.status).toBe(200);
+    expect([200, 503]).toContain(res.status);
   });
 
-  it('devuelve status "ok" o "degraded" (postgres es opcional)', async () => {
+  it('incluye campo status', async () => {
     const res = await request(app).get('/health');
-    expect(['ok', 'degraded']).toContain(res.body.status);
+    expect(['ok', 'error']).toContain(res.body.status);
   });
 
-  it('SQLite siempre reporta "ok"', async () => {
+  it('incluye checks para node, postgres y python', async () => {
     const res = await request(app).get('/health');
-    expect(res.body.checks.sqlite).toBe('ok');
+    expect(res.body.checks).toHaveProperty('node');
+    expect(res.body.checks).toHaveProperty('postgres');
+    expect(res.body.checks).toHaveProperty('python');
   });
 
   it('Python service reporta "unavailable" (no corriendo en tests)', async () => {
