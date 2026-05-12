@@ -6,7 +6,7 @@ const pg               = require('../../db/postgres');
 const ollama           = require('../../services/ollamaService');
 const { requireAuth }  = require('./auth');
 const { validateId, abort } = require('../../utils/validate');
-const { ACTIVITY_FACTORS }  = require('../../utils/constants');
+const { calcMetrics, calcProteinTarget } = require('../../utils/metrics');
 
 // ── Memory helpers (PostgreSQL) ────────────────────────────────────────────────
 
@@ -98,15 +98,11 @@ function _buildSystemPrompt(p = {}, memories = []) {
   const w = p.weight, h = p.height, a = p.age;
   let metricsBlock = '';
   if (w && h && a) {
-    const male = p.gender === 'male';
-    const tmb  = male
-      ? Math.round(88.36 + 13.4 * w + 4.8 * h - 5.7 * a)
-      : Math.round(447.6 + 9.2 * w + 3.1 * h - 4.3 * a);
-    const tdee   = Math.round(tmb * (ACTIVITY_FACTORS[p.activityLevel] || ACTIVITY_FACTORS.moderate));
-    const target = p.goal === 'lose' ? tdee - 400 : p.goal === 'gain' ? tdee + 300 : tdee;
-    const bmi    = parseFloat((w / ((h / 100) ** 2)).toFixed(1));
-    const prot   = Math.round(w * (p.goal === 'gain' ? 2.0 : 1.7));
-    metricsBlock = `\nMÉTRICAS CALCULADAS:\n- TMB: ${tmb} kcal/día | TDEE: ${tdee} kcal/día | Meta calórica: ${target} kcal/día\n- IMC: ${bmi} | Proteína objetivo: ${prot} g/día`;
+    const { bmr, tdee, calorie_target, bmi } = calcMetrics(
+      Number(w), Number(h), Number(a), p.gender, p.activityLevel, p.goal
+    );
+    const prot = calcProteinTarget(Number(w), p.goal);
+    metricsBlock = `\nMÉTRICAS CALCULADAS:\n- TMB: ${bmr} kcal/día | TDEE: ${tdee} kcal/día | Meta calórica: ${calorie_target} kcal/día\n- IMC: ${bmi} | Proteína objetivo: ${prot} g/día`;
   }
 
   const profileLines = [
@@ -152,7 +148,7 @@ REGLAS DE COMPORTAMIENTO:
 11. No saludes en cada mensaje — solo en el primero o cuando sea natural`;
 }
 
-// ── Local AI fallback ──────────────────────────────────────────────────────────
+// ── Local AI fallback ─────────────────────────────────────────────────────────
 const _INTENTS = {
   greet:      /^(hola|buenos|buenas|hey|hi|saludos|qu[eé] tal|como est|ola)/i,
   routine:    /rutina|entrenamiento|ejercicio|workout|gym|gimn|plan de tren|entrena|semana de ejerc/i,
@@ -179,14 +175,10 @@ function _detect(msg) {
 
 function _calcMetrics(p) {
   const w = p.weight || 70, h = p.height || 170, a = p.age || 25;
-  const male = p.gender === 'male';
-  const tmb  = male
-    ? Math.round(88.36 + 13.4 * w + 4.8 * h - 5.7 * a)
-    : Math.round(447.6 + 9.2 * w + 3.1 * h - 4.3 * a);
-  const tdee  = Math.round(tmb * (ACTIVITY_FACTORS[p.activityLevel] || ACTIVITY_FACTORS.moderate));
-  const target = p.goal === 'lose' ? tdee - 350 : p.goal === 'gain' ? tdee + 300 : tdee;
-  const bmi   = h ? Math.round((w / ((h / 100) ** 2)) * 10) / 10 : null;
-  return { tmb, tdee, target, bmi };
+  const { bmr, tdee, calorie_target, bmi } = calcMetrics(
+    Number(w), Number(h), Number(a), p.gender, p.activityLevel, p.goal
+  );
+  return { tmb: bmr, tdee, target: calorie_target, bmi };
 }
 
 function _buildRoutine(goal) {

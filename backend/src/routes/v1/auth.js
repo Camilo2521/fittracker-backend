@@ -1,13 +1,14 @@
 'use strict';
 
-const express  = require('express');
-const router   = express.Router();
-const bcrypt   = require('bcryptjs');
-const jwt      = require('jsonwebtoken');
-const crypto   = require('crypto');
-const pg       = require('../../db/postgres');
-const n8n      = require('../../services/n8nWebhookService');
-const email    = require('../../services/emailService');
+const express      = require('express');
+const router       = express.Router();
+const bcrypt       = require('bcryptjs');
+const jwt          = require('jsonwebtoken');
+const crypto       = require('crypto');
+const pg           = require('../../db/postgres');
+const n8n          = require('../../services/n8nWebhookService');
+const email        = require('../../services/emailService');
+const asyncHandler = require('../../utils/asyncHandler');
 const { authLimiter }                               = require('../../middleware/rateLimiter');
 const { validateDate, validateNumber, abort }       = require('../../utils/validate');
 const { VALID_GOALS, VALID_GENDERS, VALID_ACTIVITY_LEVELS } = require('../../utils/constants');
@@ -129,6 +130,10 @@ router.post('/register', authLimiter, async (req, res) => {
     if (exists.rows.length) return res.status(409).json({ error: 'Este email ya está registrado' });
 
     const hash = await bcrypt.hash(password, 10);
+    // El onboarding se considera completo solo si se tienen todos los datos físicos
+    // necesarios para calcular BMR/TDEE (peso, altura, edad, género y objetivo).
+    const onboardingCompleto = !!(weight && height && age && gender && goal);
+
     const { rows } = await pg.query(
       `INSERT INTO cuentas
          (correo, hash_contrasena, nombre, objetivo, peso, altura_cm, edad, genero, nivel_actividad, restricciones, onboarding_completado)
@@ -138,7 +143,7 @@ router.post('/register', authLimiter, async (req, res) => {
         email.trim(), hash, name.trim(),
         goal, weight || null, height || null, age || null, gender || null,
         activityLevel, restrictions,
-        !!(weight && goal),
+        onboardingCompleto,
       ]
     );
     const { accessToken, refreshToken } = await _issueTokens(rows[0], req);
@@ -273,7 +278,7 @@ router.get('/chat-history', requireAuth, async (req, res) => {
 });
 
 // ── POST /api/v1/auth/chat-history ───────────────────────────────────────────
-router.post('/chat-history', requireAuth, async (req, res) => {
+router.post('/chat-history', requireAuth, asyncHandler(async (req, res) => {
   const { messages = [] } = req.body;
   const valid = messages.filter(m => m.role && m.content);
   if (!valid.length) return res.json({ saved: 0 });
@@ -298,12 +303,12 @@ router.post('/chat-history', requireAuth, async (req, res) => {
     await client.query('COMMIT');
     res.json({ saved: valid.length });
   } catch (err) {
-    await client.query('ROLLBACK');
+    await client.query('ROLLBACK').catch(() => {});
     throw err;
   } finally {
     client.release();
   }
-});
+}));
 
 // ── POST /api/v1/auth/workout-log ─────────────────────────────────────────────
 router.post('/workout-log', requireAuth, async (req, res) => {
@@ -560,10 +565,10 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
  *       200: { description: Contraseña actualizada }
  *       400: { description: Token inválido, expirado o contraseña muy corta }
  */
-router.post('/reset-password', authLimiter, async (req, res) => {
+router.post('/reset-password', authLimiter, asyncHandler(async (req, res) => {
   const { token, password } = req.body;
-  if (!token || !password)      return res.status(400).json({ error: 'Token y contraseña requeridos' });
-  if (password.length < 8)      return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+  if (!token || !password) return res.status(400).json({ error: 'Token y contraseña requeridos' });
+  if (password.length < 8) return res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
 
   const client = await pg.pool.connect();
   try {
@@ -574,27 +579,25 @@ router.post('/reset-password', authLimiter, async (req, res) => {
     );
 
     const record = rows[0];
-    if (!record || record.utilizado)                   return res.status(400).json({ error: 'Token inválido o ya utilizado' });
-    if (new Date(record.expira_en) < new Date())       return res.status(400).json({ error: 'Token expirado. Solicita uno nuevo' });
+    if (!record || record.utilizado)             return res.status(400).json({ error: 'Token inválido o ya utilizado' });
+    if (new Date(record.expira_en) < new Date()) return res.status(400).json({ error: 'Token expirado. Solicita uno nuevo' });
 
     const newHash = await bcrypt.hash(password, 10);
 
     await client.query('BEGIN');
     await client.query('UPDATE cuentas SET hash_contrasena = $1 WHERE id = $2', [newHash, record.cuenta_id]);
     await client.query('UPDATE tokens_recuperacion SET utilizado = TRUE WHERE id = $1', [record.id]);
-    // Revocar todos los refresh tokens activos de esta cuenta
     await client.query('UPDATE tokens_refresco SET revocado = TRUE WHERE cuenta_id = $1', [record.cuenta_id]);
     await client.query('COMMIT');
 
     res.json({ ok: true, message: 'Contraseña actualizada correctamente' });
   } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('[auth] reset-password error:', err);
-    res.status(500).json({ error: 'Error al restablecer la contraseña' });
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
   } finally {
     client.release();
   }
-});
+}));
 
 // ── DELETE /api/v1/auth/me ────────────────────────────────────────────────────
 /**
@@ -617,7 +620,7 @@ router.post('/reset-password', authLimiter, async (req, res) => {
  *       400: { description: Contraseña requerida }
  *       401: { description: Contraseña incorrecta }
  */
-router.delete('/me', requireAuth, async (req, res) => {
+router.delete('/me', requireAuth, asyncHandler(async (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Se requiere la contraseña para confirmar el borrado' });
 
@@ -630,24 +633,22 @@ router.delete('/me', requireAuth, async (req, res) => {
     if (!ok) return res.status(401).json({ error: 'Contraseña incorrecta' });
 
     await client.query('BEGIN');
-    // mediciones_progreso usa ON DELETE SET NULL — borrar explícitamente
+    // mediciones_progreso usa ON DELETE SET NULL — borrar explícitamente antes del CASCADE
     await client.query('DELETE FROM mediciones_progreso WHERE cuenta_id = $1', [req.accountId]);
-    // El resto de tablas caen por CASCADE al borrar la cuenta
     await client.query('DELETE FROM cuentas WHERE id = $1', [req.accountId]);
     await client.query('COMMIT');
 
     res.json({ ok: true, message: 'Cuenta y todos los datos eliminados correctamente' });
   } catch (err) {
-    await client.query('ROLLBACK');
-    console.error('[auth] delete account error:', err);
-    res.status(500).json({ error: 'Error al eliminar la cuenta' });
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
   } finally {
     client.release();
   }
-});
+}));
 
 // ── POST /api/v1/auth/refresh ─────────────────────────────────────────────────
-router.post('/refresh', authLimiter, async (req, res) => {
+router.post('/refresh', authLimiter, asyncHandler(async (req, res) => {
   const { refreshToken } = req.body;
   if (!refreshToken) return res.status(400).json({ error: 'refreshToken requerido' });
 
@@ -680,12 +681,11 @@ router.post('/refresh', authLimiter, async (req, res) => {
     res.json(tokens);
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('[auth] refresh error:', err);
-    res.status(500).json({ error: 'Error al refrescar token' });
+    throw err;
   } finally {
     client.release();
   }
-});
+}));
 
 // ── POST /api/v1/auth/logout ──────────────────────────────────────────────────
 router.post('/logout', async (req, res) => {

@@ -40,7 +40,7 @@ describe('POST /api/v1/progress/metrics', () => {
         .set(bearerHeader(TOKEN))
         .send({ weight: 75, age: 30, gender: 'male', activityLevel: 'moderate', goal: 'maintain' });
       expect(res.status).toBe(422);
-      expect(res.body.missing).toContain('heightCm (height_cm)');
+      expect(res.body.missing).toContain('heightCm');
     });
 
     it('rechaza perfil incompleto sin edad (422)', async () => {
