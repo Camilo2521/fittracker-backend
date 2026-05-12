@@ -1,11 +1,12 @@
 'use strict';
 
-const express        = require('express');
-const router         = express.Router();
-const { FLAGS }      = require('../../middleware/featureFlags');
-const vision         = require('../../services/visionClient');
-const pg             = require('../../db/postgres');
+const express         = require('express');
+const router          = express.Router();
+const { FLAGS }       = require('../../middleware/featureFlags');
+const vision          = require('../../services/visionClient');
+const pg              = require('../../db/postgres');
 const { requireAuth } = require('./auth');
+const asyncHandler    = require('../../utils/asyncHandler');
 const { validateEnum, abort } = require('../../utils/validate');
 const { VALID_GOALS } = require('../../utils/constants');
 
@@ -31,7 +32,7 @@ const { VALID_GOALS } = require('../../utils/constants');
  *     responses:
  *       200: { description: Plan de rutina semanal }
  */
-router.post('/generate', requireAuth, async (req, res) => {
+router.post('/generate', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [req.accountId]);
   const user = rows[0];
 
@@ -50,14 +51,15 @@ router.post('/generate', requireAuth, async (req, res) => {
   // req.body.goal takes precedence; unknown goals fall back to 'maintain' in the generator
   const goal = req.body.goal || user?.objetivo || 'maintain';
   return res.json(_localRoutine(goal));
-});
+}));
 
 /**
  * GET /api/v1/routines/active
  */
-router.get('/active', requireAuth, async (req, res) => {
+router.get('/active', requireAuth, asyncHandler(async (req, res) => {
+  let result;
   try {
-    const result = await pg.query(
+    result = await pg.query(
       `SELECT r.*, json_agg(
          json_build_object(
            'indice_dia', rd.indice_dia,
@@ -75,14 +77,13 @@ router.get('/active', requireAuth, async (req, res) => {
        LIMIT 1`,
       [req.accountId]
     );
-    if (!result.rows.length) return res.status(404).json({ error: 'No hay rutina activa' });
-    res.json(result.rows[0]);
   } catch (e) {
     if (e?.code === '42P01') return res.status(404).json({ error: 'Feature no disponible aún' });
-    console.error('[routines] GET active error:', e.message);
-    res.status(503).json({ error: 'Servicio de rutinas no disponible' });
+    return res.status(503).json({ error: 'Servicio de rutinas no disponible' });
   }
-});
+  if (!result.rows.length) return res.status(404).json({ error: 'No hay rutina activa' });
+  res.json(result.rows[0]);
+}));
 
 // ── Local routine generator ───────────────────────────────────────────────────
 

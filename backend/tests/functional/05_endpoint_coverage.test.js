@@ -81,6 +81,11 @@ describe('Cobertura de endpoints — catálogo completo', () => {
     { method: 'get',  path: '/api/v1/auth/diet-logs' },
     { method: 'get',  path: '/api/v1/auth/progress-logs' },
     { method: 'get',  path: '/api/v1/auth/ai-suggestions' },
+    // New routes added in v3.2
+    { method: 'get',  path: '/api/v1/habits/water' },
+    { method: 'get',  path: '/api/v1/habits/daily-check' },
+    { method: 'get',  path: '/api/v1/settings' },
+    { method: 'get',  path: '/api/v1/meals' },
   ];
 
   it.each(authEndpoints)('$method $path — autenticado → 200', async ({ method, path }) => {

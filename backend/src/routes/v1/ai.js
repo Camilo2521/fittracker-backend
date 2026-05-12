@@ -5,6 +5,7 @@ const router           = express.Router();
 const pg               = require('../../db/postgres');
 const ollama           = require('../../services/ollamaService');
 const { requireAuth }  = require('./auth');
+const asyncHandler     = require('../../utils/asyncHandler');
 const { validateId, abort } = require('../../utils/validate');
 const { calcMetrics, calcProteinTarget } = require('../../utils/metrics');
 
@@ -318,8 +319,12 @@ function _localAI(userMsg, p, history) {
 }
 
 // ── Body scan ──────────────────────────────────────────────────────────────────
-router.post('/body-scan', async (_req, res) => {
-  res.status(501).json({ error: 'Análisis corporal por cámara no implementado aún' });
+router.post('/body-scan', (_req, res) => {
+  res.status(501).json({
+    error:   'Análisis corporal no implementado aún',
+    message: 'El análisis corporal por cámara estará disponible en la próxima actualización. Usa el módulo de Repeticiones para el análisis de postura en tiempo real.',
+    feature: 'body-scan',
+  });
 });
 
 /**
@@ -353,7 +358,7 @@ router.post('/body-scan', async (_req, res) => {
  *       200:
  *         description: Respuesta del asistente
  */
-router.post('/chat', async (req, res) => {
+router.post('/chat', asyncHandler(async (req, res) => {
   const { messages = [], userProfile = {} } = req.body;
   if (!Array.isArray(messages) || !messages.length) {
     return res.status(400).json({ error: 'messages[] requerido' });
@@ -379,7 +384,7 @@ router.post('/chat', async (req, res) => {
   }
 
   res.json({ content: _localAI(lastMsg, userProfile, messages), source: 'local' });
-});
+}));
 
 // ── POST /api/v1/ai/chat/stream ────────────────────────────────────────────────
 router.post('/chat/stream', async (req, res) => {
@@ -396,34 +401,39 @@ router.post('/chat/stream', async (req, res) => {
   });
   const send = obj => res.write(`data: ${JSON.stringify(obj)}\n\n`);
 
-  const accountId   = userProfile.id || req.body.accountId || null;
-  const lastMsg     = messages[messages.length - 1]?.content || '';
+  try {
+    const accountId   = userProfile.id || req.body.accountId || null;
+    const lastMsg     = messages[messages.length - 1]?.content || '';
 
-  const newMems = _extractMemories(lastMsg);
-  if (newMems.length) await _saveMemories(accountId, newMems);
+    const newMems = _extractMemories(lastMsg);
+    if (newMems.length) await _saveMemories(accountId, newMems);
 
-  const memories     = await _loadMemories(accountId);
-  const systemPrompt = _buildSystemPrompt(userProfile, memories);
-  const history      = messages.slice(-30).map(m => ({ role: m.role, content: m.content }));
+    const memories     = await _loadMemories(accountId);
+    const systemPrompt = _buildSystemPrompt(userProfile, memories);
+    const history      = messages.slice(-30).map(m => ({ role: m.role, content: m.content }));
 
-  if (await ollama.isAvailable()) {
-    try {
-      for await (const chunk of ollama.chatStream(history, systemPrompt)) {
-        send({ t: chunk });
+    if (await ollama.isAvailable()) {
+      try {
+        for await (const chunk of ollama.chatStream(history, systemPrompt)) {
+          send({ t: chunk });
+        }
+        send({ done: true, source: 'ollama', model: ollama.getModel() });
+        return res.end();
+      } catch (err) {
+        console.warn('[FitBot] Ollama stream error:', err.message);
       }
-      send({ done: true, source: 'ollama', model: ollama.getModel() });
-      return res.end();
-    } catch (err) {
-      console.warn('[FitBot] Ollama stream error:', err.message);
     }
-  }
 
-  const reply = _localAI(lastMsg, userProfile, messages);
-  for (const w of reply.split(/(?<=\s)/)) {
-    send({ t: w });
-    await new Promise(r => setTimeout(r, 15));
+    const reply = _localAI(lastMsg, userProfile, messages);
+    for (const w of reply.split(/(?<=\s)/)) {
+      send({ t: w });
+      await new Promise(r => setTimeout(r, 15));
+    }
+    send({ done: true, source: 'local' });
+  } catch (err) {
+    console.error('[FitBot] stream error:', err.message);
+    send({ error: 'Error interno del asistente', done: true });
   }
-  send({ done: true, source: 'local' });
   res.end();
 });
 
@@ -438,7 +448,7 @@ router.post('/chat/stream', async (req, res) => {
  *       200:
  *         description: Estado de Ollama y modelos disponibles
  */
-router.get('/status', async (_req, res) => {
+router.get('/status', asyncHandler(async (_req, res) => {
   const ollamaOk = await ollama.isAvailable();
   const models   = ollamaOk ? await ollama.listModels() : [];
   res.json({
@@ -447,17 +457,17 @@ router.get('/status', async (_req, res) => {
     models_available: models,
     active_mode:      ollamaOk ? 'ollama' : 'local',
   });
-});
+}));
 
 // ── GET /api/v1/ai/memory ──────────────────────────────────────────────────────
-router.get('/memory', requireAuth, async (req, res) => {
+router.get('/memory', requireAuth, asyncHandler(async (req, res) => {
   res.json(await _loadMemories(req.accountId));
-});
+}));
 
 // ── DELETE /api/v1/ai/memory/:key ─────────────────────────────────────────────
-router.delete('/memory/:key', requireAuth, async (req, res) => {
+router.delete('/memory/:key', requireAuth, asyncHandler(async (req, res) => {
   await pg.query('DELETE FROM memorias_usuario WHERE cuenta_id = $1 AND clave = $2', [req.accountId, req.params.key]);
   res.json({ deleted: req.params.key });
-});
+}));
 
 module.exports = router;

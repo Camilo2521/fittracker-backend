@@ -1,0 +1,77 @@
+'use strict';
+
+const express         = require('express');
+const router          = express.Router();
+const pg              = require('../../db/postgres');
+const { requireAuth } = require('./auth');
+const asyncHandler    = require('../../utils/asyncHandler');
+
+/**
+ * POST /api/v1/meals
+ * Guarda una comida detectada (por IA o entrada manual).
+ * Body: { name, date?, calories, protein?, carbs?, fat?, confidence?, detectedBy? }
+ */
+router.post('/', requireAuth, asyncHandler(async (req, res) => {
+  const { name, date, calories, protein, carbs, fat, confidence, detectedBy } = req.body;
+
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'name es requerido' });
+  }
+  if (calories == null || isNaN(Number(calories)) || Number(calories) < 0) {
+    return res.status(400).json({ error: 'calories debe ser un número >= 0' });
+  }
+
+  const fecha = date || new Date().toISOString().slice(0, 10);
+
+  const { rows } = await pg.query(
+    `INSERT INTO comidas_detectadas
+       (cuenta_id, fecha, nombre, calorias, proteinas, carbohidratos, grasas, detectado_por, confianza)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING id, fecha, nombre, calorias, proteinas, carbohidratos, grasas, detectado_por, confianza`,
+    [
+      req.accountId,
+      fecha,
+      name.trim(),
+      Number(calories)           || 0,
+      Number(protein)            || 0,
+      Number(carbs)              || 0,
+      Number(fat)                || 0,
+      detectedBy || 'ia',
+      confidence != null ? Number(confidence) : null,
+    ]
+  );
+
+  res.status(201).json(rows[0] || { fecha, nombre: name.trim(), calorias: Number(calories) || 0 });
+}));
+
+/**
+ * GET /api/v1/meals?date=YYYY-MM-DD
+ * Devuelve las comidas detectadas del usuario en una fecha (por defecto hoy).
+ */
+router.get('/', requireAuth, asyncHandler(async (req, res) => {
+  const date  = req.query.date || new Date().toISOString().slice(0, 10);
+  const limit = Math.min(Math.max(parseInt(req.query.limit || '50', 10), 1), 200);
+
+  const { rows } = await pg.query(
+    `SELECT id, fecha, nombre, calorias, proteinas, carbohidratos, grasas, detectado_por, confianza, creado_en
+     FROM comidas_detectadas
+     WHERE cuenta_id = $1 AND fecha = $2
+     ORDER BY creado_en DESC
+     LIMIT $3`,
+    [req.accountId, date, limit]
+  );
+
+  const totals = rows.reduce(
+    (acc, r) => ({
+      calories: acc.calories + (r.calorias   || 0),
+      protein:  acc.protein  + (r.proteinas  || 0),
+      carbs:    acc.carbs    + (r.carbohidratos || 0),
+      fat:      acc.fat      + (r.grasas     || 0),
+    }),
+    { calories: 0, protein: 0, carbs: 0, fat: 0 }
+  );
+
+  res.json({ data: rows, date, totals });
+}));
+
+module.exports = router;

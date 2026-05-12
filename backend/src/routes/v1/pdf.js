@@ -4,13 +4,14 @@ const express          = require('express');
 const router           = express.Router();
 const vision           = require('../../services/visionClient');
 const { requireAuth }  = require('./auth');
+const asyncHandler     = require('../../utils/asyncHandler');
 
 /**
  * POST /api/v1/pdf/diet
  * Body: { dietData, userName }
  * Proxy al servicio Python → devuelve el PDF al cliente.
  */
-router.post('/diet', requireAuth, async (req, res) => {
+router.post('/diet', requireAuth, asyncHandler(async (req, res) => {
   const { dietData, userName = 'Usuario' } = req.body;
   if (!dietData) return res.status(400).json({ error: 'dietData es requerido' });
 
@@ -26,6 +27,6 @@ router.post('/diet', requireAuth, async (req, res) => {
     'Content-Length':      pdfBuffer.length,
   });
   res.send(pdfBuffer);
-});
+}));
 
 module.exports = router;

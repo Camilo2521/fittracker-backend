@@ -29,12 +29,18 @@ function getPool() {
 
 /**
  * Ejecuta una query en PostgreSQL.
- * Retorna null (sin lanzar) si el pool no está disponible.
- * Lanza el error si el pool existe pero la query falla.
+ * Lanza un error descriptivo si el pool no está configurado, en lugar de
+ * retornar null silenciosamente (lo que causaría TypeErrors genéricos
+ * al desestructurar el resultado en las rutas).
  */
 async function query(sql, params = []) {
   const pool = getPool();
-  if (!pool) return null;
+  if (!pool) {
+    throw new Error(
+      'PostgreSQL no está configurado. ' +
+      'Define DATABASE_URL en backend/.env y reinicia el servidor.'
+    );
+  }
   return pool.query(sql, params);
 }
 

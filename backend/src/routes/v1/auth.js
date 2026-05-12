@@ -205,11 +205,11 @@ router.post('/login', authLimiter, async (req, res) => {
  *       200: { description: Datos del usuario }
  *       401: { description: Token requerido }
  */
-router.get('/me', requireAuth, async (req, res) => {
+router.get('/me', requireAuth, asyncHandler(async (req, res) => {
   const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [req.accountId]);
   if (!rows.length) return res.status(404).json({ error: 'Usuario no encontrado' });
   res.json(_safeUser(rows[0]));
-});
+}));
 
 /**
  * @swagger
@@ -234,38 +234,40 @@ router.get('/me', requireAuth, async (req, res) => {
  *     responses:
  *       200: { description: Perfil actualizado }
  */
-router.put('/profile', requireAuth, async (req, res) => {
-  const { name, goal, weight, height, age, gender, activityLevel, restrictions } = req.body;
-  try {
-    const { rows } = await pg.query(
-      `UPDATE cuentas SET
-         nombre               = COALESCE($1, nombre),
-         objetivo             = COALESCE($2, objetivo),
-         peso                 = COALESCE($3, peso),
-         altura_cm            = COALESCE($4, altura_cm),
-         edad                 = COALESCE($5, edad),
-         genero               = COALESCE($6, genero),
-         nivel_actividad      = COALESCE($7, nivel_actividad),
-         restricciones        = COALESCE($8, restricciones),
-         onboarding_completado = TRUE
-       WHERE id = $9
-       RETURNING *`,
-      [
-        name || null, goal || null, weight || null, height || null,
-        age || null, gender || null, activityLevel || null, restrictions || null,
-        req.accountId,
-      ]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Usuario no encontrado' });
-    res.json(_safeUser(rows[0]));
-  } catch (err) {
-    console.error('[auth] profile update error:', err);
-    res.status(500).json({ error: 'Error al actualizar el perfil' });
-  }
-});
+router.put('/profile', requireAuth, asyncHandler(async (req, res) => {
+  const {
+    name, goal, weight, height, age, gender, activityLevel, restrictions,
+    target_weight,             // from syncGoal / syncUserProfile
+    height_cm,                 // alias used by some callers
+  } = req.body;
+  const heightVal = height || height_cm || null;
+  const { rows } = await pg.query(
+    `UPDATE cuentas SET
+       nombre               = COALESCE($1,  nombre),
+       objetivo             = COALESCE($2,  objetivo),
+       peso                 = COALESCE($3,  peso),
+       altura_cm            = COALESCE($4,  altura_cm),
+       edad                 = COALESCE($5,  edad),
+       genero               = COALESCE($6,  genero),
+       nivel_actividad      = COALESCE($7,  nivel_actividad),
+       restricciones        = COALESCE($8,  restricciones),
+       peso_meta            = COALESCE($9,  peso_meta),
+       onboarding_completado = TRUE
+     WHERE id = $10
+     RETURNING *`,
+    [
+      name || null, goal || null, weight || null, heightVal || null,
+      age || null, gender || null, activityLevel || null, restrictions || null,
+      target_weight || null,
+      req.accountId,
+    ]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Usuario no encontrado' });
+  res.json(_safeUser(rows[0]));
+}));
 
 // ── GET /api/v1/auth/chat-history ────────────────────────────────────────────
-router.get('/chat-history', requireAuth, async (req, res) => {
+router.get('/chat-history', requireAuth, asyncHandler(async (req, res) => {
   const { limit, offset } = _parsePage(req.query, 40);
   const [data, count] = await Promise.all([
     pg.query(
@@ -275,7 +277,7 @@ router.get('/chat-history', requireAuth, async (req, res) => {
     pg.query('SELECT COUNT(*)::int AS total FROM historial_chat WHERE cuenta_id = $1', [req.accountId]),
   ]);
   res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
-});
+}));
 
 // ── POST /api/v1/auth/chat-history ───────────────────────────────────────────
 router.post('/chat-history', requireAuth, asyncHandler(async (req, res) => {
@@ -311,7 +313,7 @@ router.post('/chat-history', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 // ── POST /api/v1/auth/workout-log ─────────────────────────────────────────────
-router.post('/workout-log', requireAuth, async (req, res) => {
+router.post('/workout-log', requireAuth, asyncHandler(async (req, res) => {
   const { date, routineName, exercises = [], durationMin, notes } = req.body;
   if (routineName && routineName.length > 200) return res.status(400).json({ error: 'routineName no puede superar 200 caracteres' });
   if (notes       && notes.length       > 1000) return res.status(400).json({ error: 'notes no puede superar 1000 caracteres' });
@@ -333,10 +335,10 @@ router.post('/workout-log', requireAuth, async (req, res) => {
   }).catch(() => {});
 
   res.json({ id: rows[0].id });
-});
+}));
 
 // ── GET /api/v1/auth/workout-logs ─────────────────────────────────────────────
-router.get('/workout-logs', requireAuth, async (req, res) => {
+router.get('/workout-logs', requireAuth, asyncHandler(async (req, res) => {
   const { limit, offset } = _parsePage(req.query, 20);
   const { from, to } = req.query; // filtros opcionales YYYY-MM-DD
 
@@ -357,10 +359,10 @@ router.get('/workout-logs', requireAuth, async (req, res) => {
     pg.query(`SELECT COUNT(*)::int AS total FROM registros_entrenamiento WHERE ${where}`, whereParams),
   ]);
   res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
-});
+}));
 
 // ── POST /api/v1/auth/diet-log ────────────────────────────────────────────────
-router.post('/diet-log', requireAuth, async (req, res) => {
+router.post('/diet-log', requireAuth, asyncHandler(async (req, res) => {
   const { date, planName, meals = [], totalKcal, notes } = req.body;
   const logDate = date || new Date().toISOString().slice(0, 10);
 
@@ -378,10 +380,10 @@ router.post('/diet-log', requireAuth, async (req, res) => {
   }).catch(() => {});
 
   res.json({ id: rows[0].id });
-});
+}));
 
 // ── GET /api/v1/auth/diet-logs ────────────────────────────────────────────────
-router.get('/diet-logs', requireAuth, async (req, res) => {
+router.get('/diet-logs', requireAuth, asyncHandler(async (req, res) => {
   const { limit, offset } = _parsePage(req.query, 20);
   const [data, count] = await Promise.all([
     pg.query(
@@ -391,10 +393,10 @@ router.get('/diet-logs', requireAuth, async (req, res) => {
     pg.query('SELECT COUNT(*)::int AS total FROM registros_dieta WHERE cuenta_id = $1', [req.accountId]),
   ]);
   res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
-});
+}));
 
 // ── POST /api/v1/auth/progress-log ───────────────────────────────────────────
-router.post('/progress-log', requireAuth, async (req, res) => {
+router.post('/progress-log', requireAuth, asyncHandler(async (req, res) => {
   const { date, weight, bodyFat, chestCm, waistCm, hipCm, armCm, notes } = req.body;
   const logDate = date || new Date().toISOString().slice(0, 10);
 
@@ -416,10 +418,10 @@ router.post('/progress-log', requireAuth, async (req, res) => {
   }).catch(() => {});
 
   res.json({ id: rows[0].id });
-});
+}));
 
 // ── GET /api/v1/auth/progress-logs ───────────────────────────────────────────
-router.get('/progress-logs', requireAuth, async (req, res) => {
+router.get('/progress-logs', requireAuth, asyncHandler(async (req, res) => {
   const { limit, offset } = _parsePage(req.query, 30);
   const [data, count] = await Promise.all([
     pg.query(
@@ -429,46 +431,66 @@ router.get('/progress-logs', requireAuth, async (req, res) => {
     pg.query('SELECT COUNT(*)::int AS total FROM registros_progreso WHERE cuenta_id = $1', [req.accountId]),
   ]);
   res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
-});
+}));
 
 // ── GET /api/v1/auth/export/csv ──────────────────────────────────────────────
-router.get('/export/csv', requireAuth, async (req, res) => {
-  const type = req.query.type || 'workouts'; // workouts | progress
-  try {
-    let rows, headers, mapper;
-    if (type === 'progress') {
-      const { rows: r } = await pg.query(
-        `SELECT fecha, peso, grasa_corporal, cintura_cm, notas
-         FROM registros_progreso WHERE cuenta_id = $1 ORDER BY fecha DESC`,
-        [req.accountId]
-      );
-      rows    = r;
-      headers = 'fecha,peso_kg,grasa_corporal_%,cintura_cm,notas\n';
-      mapper  = r => `${r.fecha},${r.peso ?? ''},${r.grasa_corporal ?? ''},${r.cintura_cm ?? ''},"${(r.notas || '').replace(/"/g, '""')}"`;
-    } else {
-      const { rows: r } = await pg.query(
-        `SELECT fecha, nombre_rutina, duracion_min, notas
-         FROM registros_entrenamiento WHERE cuenta_id = $1 ORDER BY fecha DESC`,
-        [req.accountId]
-      );
-      rows    = r;
-      headers = 'fecha,rutina,duracion_min,notas\n';
-      mapper  = r => `${r.fecha},"${(r.nombre_rutina || '').replace(/"/g, '""')}",${r.duracion_min ?? ''},"${(r.notas || '').replace(/"/g, '""')}"`;
-    }
-    const csv = headers + rows.map(mapper).join('\n');
-    res.set({
-      'Content-Type':        'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="fittracker-${type}-${new Date().toISOString().slice(0,10)}.csv"`,
-    });
-    res.send('﻿' + csv); // BOM para Excel
-  } catch (err) {
-    console.error('[auth] export/csv error:', err);
-    res.status(500).json({ error: 'Error exportando datos' });
+// ?type=workouts (default) | progress | diets
+router.get('/export/csv', requireAuth, asyncHandler(async (req, res) => {
+  const type = req.query.type || 'workouts';
+
+  const VALID_TYPES = new Set(['workouts', 'progress', 'diets']);
+  if (!VALID_TYPES.has(type)) {
+    return res.status(400).json({ error: `type debe ser uno de: ${[...VALID_TYPES].join(', ')}` });
   }
-});
+
+  let rows, headers, mapper;
+
+  if (type === 'progress') {
+    const { rows: r } = await pg.query(
+      `SELECT fecha, peso, grasa_corporal, pecho_cm, cintura_cm, cadera_cm, brazo_cm, notas
+       FROM registros_progreso WHERE cuenta_id = $1 ORDER BY fecha DESC`,
+      [req.accountId]
+    );
+    rows    = r;
+    headers = 'fecha,peso_kg,grasa_corporal_%,pecho_cm,cintura_cm,cadera_cm,brazo_cm,notas\n';
+    mapper  = r =>
+      `${r.fecha},${r.peso ?? ''},${r.grasa_corporal ?? ''},${r.pecho_cm ?? ''},` +
+      `${r.cintura_cm ?? ''},${r.cadera_cm ?? ''},${r.brazo_cm ?? ''},"${(r.notas || '').replace(/"/g, '""')}"`;
+
+  } else if (type === 'diets') {
+    const { rows: r } = await pg.query(
+      `SELECT fecha, nombre_plan, total_kcal, notas
+       FROM registros_dieta WHERE cuenta_id = $1 ORDER BY fecha DESC`,
+      [req.accountId]
+    );
+    rows    = r;
+    headers = 'fecha,plan,kcal_totales,notas\n';
+    mapper  = r =>
+      `${r.fecha},"${(r.nombre_plan || '').replace(/"/g, '""')}",${r.total_kcal ?? ''},"${(r.notas || '').replace(/"/g, '""')}"`;
+
+  } else {
+    // workouts
+    const { rows: r } = await pg.query(
+      `SELECT fecha, nombre_rutina, duracion_min, notas
+       FROM registros_entrenamiento WHERE cuenta_id = $1 ORDER BY fecha DESC`,
+      [req.accountId]
+    );
+    rows    = r;
+    headers = 'fecha,rutina,duracion_min,notas\n';
+    mapper  = r =>
+      `${r.fecha},"${(r.nombre_rutina || '').replace(/"/g, '""')}",${r.duracion_min ?? ''},"${(r.notas || '').replace(/"/g, '""')}"`;
+  }
+
+  const csv = headers + rows.map(mapper).join('\n');
+  res.set({
+    'Content-Type':        'text/csv; charset=utf-8',
+    'Content-Disposition': `attachment; filename="fittracker-${type}-${new Date().toISOString().slice(0, 10)}.csv"`,
+  });
+  res.send('﻿' + csv); // BOM para Excel
+}));
 
 // ── POST /api/v1/auth/ai-suggestion ──────────────────────────────────────────
-router.post('/ai-suggestion', requireAuth, async (req, res) => {
+router.post('/ai-suggestion', requireAuth, asyncHandler(async (req, res) => {
   const { suggestionType, content, userFeedback } = req.body;
   if (!content) return res.status(400).json({ error: 'content es requerido' });
   const { rows } = await pg.query(
@@ -477,10 +499,10 @@ router.post('/ai-suggestion', requireAuth, async (req, res) => {
     [req.accountId, suggestionType || 'general', content, userFeedback || null]
   );
   res.json({ id: rows[0].id });
-});
+}));
 
 // ── GET /api/v1/auth/ai-suggestions ──────────────────────────────────────────
-router.get('/ai-suggestions', requireAuth, async (req, res) => {
+router.get('/ai-suggestions', requireAuth, asyncHandler(async (req, res) => {
   const { limit, offset } = _parsePage(req.query, 20);
   const [data, count] = await Promise.all([
     pg.query(
@@ -490,7 +512,7 @@ router.get('/ai-suggestions', requireAuth, async (req, res) => {
     pg.query('SELECT COUNT(*)::int AS total FROM sugerencias_ia WHERE cuenta_id = $1', [req.accountId]),
   ]);
   res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
-});
+}));
 
 // ── POST /api/v1/auth/forgot-password ────────────────────────────────────────
 /**

@@ -75,8 +75,9 @@ router.post('/metrics', requireAuth, asyncHandler(async (req, res) => {
 router.get('/metrics', requireAuth, asyncHandler(async (req, res) => {
   const limit  = Math.min(Math.max(parseInt(req.query.limit  || '30', 10), 1), 100);
   const offset = Math.max(parseInt(req.query.offset || '0',  10), 0);
+  let data, count;
   try {
-    const [data, count] = await Promise.all([
+    [data, count] = await Promise.all([
       pg.query(
         `SELECT fecha_calculo, imc, tmb, gasto_calorico, meta_calorica
          FROM metricas_fisicas
@@ -90,11 +91,11 @@ router.get('/metrics', requireAuth, asyncHandler(async (req, res) => {
         [req.accountId]
       ),
     ]);
-    res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
   } catch (e) {
     if (e?.code === '42P01') return res.json({ data: [], total: 0, limit, offset });
-    res.status(503).json({ error: 'Servicio de métricas no disponible' });
+    throw e;
   }
+  res.json({ data: data.rows, total: count.rows[0].total, limit, offset });
 }));
 
 module.exports = router;
