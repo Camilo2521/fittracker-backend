@@ -81,16 +81,16 @@ describe('Feature Flags', () => {
       expect(res._status).toBeNull();
     });
 
-    it('returns 501 when the flag is disabled', () => {
+    it('returns 403 when the flag is disabled', () => {
       const { require: requireFlag } = loadModule({ FEATURE_WEEKLY_PDF: 'false' });
       const { req, res, next } = makeReqRes();
       requireFlag('weekly_pdf')(req, res, next);
       expect(next).not.toHaveBeenCalled();
-      expect(res._status).toBe(501);
+      expect(res._status).toBe(403);
       expect(res._body).toMatchObject({ flag: 'weekly_pdf' });
     });
 
-    it('includes a hint in the 501 response', () => {
+    it('includes a hint in the 403 response', () => {
       const { require: requireFlag } = loadModule({ FEATURE_RAG_ENABLED: 'false' });
       const { req, res, next } = makeReqRes();
       requireFlag('rag_enabled')(req, res, next);

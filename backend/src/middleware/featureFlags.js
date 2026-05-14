@@ -17,7 +17,7 @@ function require(flag) {
   const envKey = `FEATURE_${flag.toUpperCase()}`;
   return function featureFlagGuard(req, res, next) {
     if (process.env[envKey] !== 'true') {
-      return res.status(501).json({
+      return res.status(403).json({
         error: `Feature '${flag}' no habilitada en este servidor`,
         flag,
         hint: `Configura la variable de entorno ${envKey} = true`,

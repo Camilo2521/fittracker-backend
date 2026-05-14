@@ -271,6 +271,11 @@ function _smartQuery(sql = '', params = []) {
     return { rows: [record], rowCount: 1 };
   }
 
+  // sesiones_rep (rep counter sessions)
+  if (s.startsWith('INSERT INTO SESIONES_REP')) {
+    return { rows: [], rowCount: 1 };
+  }
+
   // Generic UPDATE / DELETE
   if (s.startsWith('INSERT') || s.startsWith('UPDATE') || s.startsWith('DELETE')) {
     return { rows: [], rowCount: 1 };
@@ -360,6 +365,12 @@ function _smartQuery(sql = '', params = []) {
     const key = `${accountId}_${fecha}`;
     const record = _waterIntake.get(key);
     return record ? { rows: [record], rowCount: 1 } : { rows: [], rowCount: 0 };
+  }
+
+  // sesiones_rep (rep counter sessions — table renamed from rep_sessions in migration 011)
+  if (s.includes('FROM SESIONES_REP')) {
+    const accountId = String(params[0]);
+    return { rows: [], rowCount: 0, total: 0 };
   }
 
   // controles_diarios (daily checks)

@@ -16,30 +16,30 @@ beforeAll(async () => {
 // ── Feature flag OFF (default en tests) ──────────────────────────────────────
 
 describe('YOLO — feature flag deshabilitado (FEATURE_YOLO_ENABLED=false)', () => {
-  it('POST /analyze/:type → 501 cuando el flag está apagado', async () => {
+  it('POST /analyze/:type → 403 cuando el flag está apagado', async () => {
     const res = await request(app)
       .post('/api/v1/yolo/analyze/squat')
       .set(bearerHeader(token))
       .set('Content-Type', 'application/octet-stream')
       .send(Buffer.from('fake-frame'));
-    expect(res.status).toBe(501);
+    expect(res.status).toBe(403);
     expect(res.body).toHaveProperty('error');
     expect(res.body.flag).toBe('yolo_enabled');
   });
 
-  it('GET /session/:id/summary → 501 cuando el flag está apagado', async () => {
+  it('GET /session/:id/summary → 403 cuando el flag está apagado', async () => {
     const res = await request(app)
       .get('/api/v1/yolo/session/abc123/summary')
       .set(bearerHeader(token));
-    expect(res.status).toBe(501);
+    expect(res.status).toBe(403);
     expect(res.body.flag).toBe('yolo_enabled');
   });
 
-  it('DELETE /session/:id → 501 cuando el flag está apagado', async () => {
+  it('DELETE /session/:id → 403 cuando el flag está apagado', async () => {
     const res = await request(app)
       .delete('/api/v1/yolo/session/abc123')
       .set(bearerHeader(token));
-    expect(res.status).toBe(501);
+    expect(res.status).toBe(403);
     expect(res.body.flag).toBe('yolo_enabled');
   });
 });
@@ -128,6 +128,6 @@ describe('YOLO — validación de exerciseType', () => {
     // 503 = llegó al proxy (Python no disponible en tests) — esto es correcto
     expect(res.status).not.toBe(400);
     expect(res.status).not.toBe(401);
-    expect(res.status).not.toBe(501);
+    expect(res.status).not.toBe(403);
   });
 });

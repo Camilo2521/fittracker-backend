@@ -10,7 +10,7 @@ const { validateEnum, abort } = require('../../utils/validate');
 const { VALID_EXERCISE_TYPES } = require('../../utils/constants');
 
 /**
- * Persiste una sesión completada en rep_sessions.
+ * Persiste una sesión completada en sesiones_rep.
  * Fire-and-forget: los errores de DB se loguean sin propagar al cliente.
  */
 async function _persistSession(accountId, {
@@ -19,7 +19,7 @@ async function _persistSession(accountId, {
 }) {
   try {
     await pg.query(
-      `INSERT INTO rep_sessions
+      `INSERT INTO sesiones_rep
          (cuenta_id, tipo_ejercicio, modo, iniciado_en, finalizado_en,
           total_repeticiones, total_series, calorias_quemadas, puntuacion_forma_promedio)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -140,14 +140,14 @@ router.get('/history', requireAuth, asyncHandler(async (req, res) => {
       `SELECT id, tipo_ejercicio, modo, iniciado_en, finalizado_en,
               total_repeticiones, total_series, calorias_quemadas,
               puntuacion_forma_promedio
-       FROM rep_sessions
+       FROM sesiones_rep
        WHERE cuenta_id = $1
        ORDER BY iniciado_en DESC
        LIMIT $2 OFFSET $3`,
       [req.accountId, limit, offset]
     ),
     pg.query(
-      'SELECT COUNT(*)::int AS total FROM rep_sessions WHERE cuenta_id = $1',
+      'SELECT COUNT(*)::int AS total FROM sesiones_rep WHERE cuenta_id = $1',
       [req.accountId]
     ),
   ]);
