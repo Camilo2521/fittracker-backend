@@ -231,6 +231,23 @@ router.put('/profile', requireAuth, asyncHandler(async (req, res) => {
     height_cm,                 // alias used by some callers
   } = req.body;
   const heightVal = height || height_cm || null;
+
+  // Read current row first so COALESCE can decide the final values
+  const { rows: current } = await pg.query(
+    'SELECT objetivo, peso, altura_cm, edad, genero FROM cuentas WHERE id = $1',
+    [req.accountId]
+  );
+  if (!current.length) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+  const cur = current[0];
+  const finalGoal   = goal        || cur.objetivo;
+  const finalWeight = weight      || cur.peso;
+  const finalHeight = heightVal   || cur.altura_cm;
+  const finalAge    = age         || cur.edad;
+  const finalGender = gender      || cur.genero;
+  // Onboarding complete only when all fields required for BMR/TDEE are present
+  const onboardingCompleto = !!(finalGoal && finalWeight && finalHeight && finalAge && finalGender);
+
   const { rows } = await pg.query(
     `UPDATE cuentas SET
        nombre               = COALESCE($1,  nombre),
@@ -242,7 +259,7 @@ router.put('/profile', requireAuth, asyncHandler(async (req, res) => {
        nivel_actividad      = COALESCE($7,  nivel_actividad),
        restricciones        = COALESCE($8,  restricciones),
        peso_meta            = COALESCE($9,  peso_meta),
-       onboarding_completado = TRUE
+       onboarding_completado = $11
      WHERE id = $10
      RETURNING *`,
     [
@@ -250,6 +267,7 @@ router.put('/profile', requireAuth, asyncHandler(async (req, res) => {
       age || null, gender || null, activityLevel || null, restrictions || null,
       target_weight || null,
       req.accountId,
+      onboardingCompleto,
     ]
   );
   if (!rows.length) return res.status(404).json({ error: 'Usuario no encontrado' });

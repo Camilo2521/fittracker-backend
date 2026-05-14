@@ -318,15 +318,6 @@ function _localAI(userMsg, p, history) {
   return `¡Hola${p.name ? `, **${p.name}**` : ''}! Soy FitBot, tu coach de fitness personal. 💪\n\nPuedo ayudarte con **${goalTxt}**. Prueba:\n- 🏋️ "Genera mi rutina"\n- 🥗 "Mi plan de dieta semanal"\n- 🔢 "¿Cuántas calorías necesito?"\n- 💪 "Necesito motivación"\n\n¿Por dónde empezamos?`;
 }
 
-// ── Body scan ──────────────────────────────────────────────────────────────────
-router.post('/body-scan', (_req, res) => {
-  res.status(501).json({
-    error:   'Análisis corporal no implementado aún',
-    message: 'El análisis corporal por cámara estará disponible en la próxima actualización. Usa el módulo de Repeticiones para el análisis de postura en tiempo real.',
-    feature: 'body-scan',
-  });
-});
-
 /**
  * @swagger
  * tags:

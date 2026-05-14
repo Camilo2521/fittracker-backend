@@ -517,14 +517,12 @@ describe('GET /ai/memory y DELETE /ai/memory/:key', () => {
   });
 });
 
-// ── 10. POST /body-scan ───────────────────────────────────────────────────────
+// ── 10. POST /body-scan (eliminado — ruta no registrada) ─────────────────────
 
 describe('POST /ai/body-scan', () => {
-  it('devuelve 501 Not Implemented', async () => {
+  it('devuelve 404 — ruta no registrada', async () => {
     const res = await request(app).post('/api/v1/ai/body-scan').send({});
-    expect(res.status).toBe(501);
-    expect(res.body.feature).toBe('body-scan');
-    expect(res.body.error).toBeTruthy();
+    expect(res.status).toBe(404);
   });
 });
 

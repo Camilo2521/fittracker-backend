@@ -15,6 +15,13 @@ async function _migracionesExiste(client) {
   return !!rows[0]?.t;
 }
 
+async function _legacyMigrationsExiste(client) {
+  const { rows } = await client.query(
+    `SELECT to_regclass('public._migrations') AS t`
+  );
+  return !!rows[0]?.t;
+}
+
 async function getApplied(client) {
   if (await _migracionesExiste(client)) {
     // Post-migración 005: tabla y columnas en español
@@ -22,16 +29,15 @@ async function getApplied(client) {
     return rows.map(r => r.archivo);
   }
 
-  // Pre-migración 005: tabla en inglés
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS _migrations (
-      id         BIGSERIAL   PRIMARY KEY,
-      filename   TEXT        UNIQUE NOT NULL,
-      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  const { rows } = await client.query('SELECT filename FROM _migrations ORDER BY filename');
-  return rows.map(r => r.filename);
+  if (await _legacyMigrationsExiste(client)) {
+    // Pre-migración 005: tabla en inglés (instancia que está en medio del proceso de migración)
+    const { rows } = await client.query('SELECT filename FROM _migrations ORDER BY filename');
+    return rows.map(r => r.filename);
+  }
+
+  // Instalación nueva — ninguna tabla de tracking existe aún.
+  // La migración 001 creará _migrations como parte de su SQL.
+  return [];
 }
 
 async function applyMigration(client, filename, sql) {

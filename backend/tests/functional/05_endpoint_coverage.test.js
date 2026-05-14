@@ -178,7 +178,7 @@ describe('Estructura de respuestas de error — siempre JSON con campo "error"',
     { desc: 'pdf sin dietData',         method: 'post', path: '/api/v1/pdf/diet',       body: {}, expectedStatus: 401 },
     { desc: 'reps sin userId',          method: 'post', path: '/api/v1/reps/sessions',  body: { exerciseType: 'squat' }, expectedStatus: 401 },
     { desc: 'ai/chat messages vacíos',  method: 'post', path: '/api/v1/ai/chat',        body: { messages: [] }, expectedStatus: 400 },
-    { desc: 'ai body-scan sin imagen',  method: 'post', path: '/api/v1/ai/body-scan',   body: {}, expectedStatus: 501 },
+    { desc: 'ai body-scan (eliminado)',  method: 'post', path: '/api/v1/ai/body-scan',   body: {}, expectedStatus: 404 },
     { desc: 'ai memory delete sin id',  method: 'delete', path: '/api/v1/ai/memory/k', body: {}, expectedStatus: 401 },
     { desc: 'ruta no registrada',       method: 'get',  path: '/api/v1/nonexistent',   body: null, expectedStatus: 404 },
   ];

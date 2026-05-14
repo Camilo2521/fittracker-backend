@@ -11,7 +11,8 @@ const cors       = require('cors');
 const morgan     = require('morgan');
 const requestId  = require('./middleware/requestId');
 const { generalLimiter } = require('./middleware/rateLimiter');
-const { runMigrations }  = require('./db/migrate');
+const { runMigrations }       = require('./db/migrate');
+const { startTokenCleanup }   = require('./db/tokenCleanup');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -136,6 +137,8 @@ app.use((_req, res) => res.status(404).json({ error: 'Route not found' }));
 // ── START ─────────────────────────────────────────────────────
 async function start() {
   await runMigrations();
+
+  startTokenCleanup();
 
   app.listen(PORT, '0.0.0.0', () => {
     const { FLAGS } = require('./middleware/featureFlags');

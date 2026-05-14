@@ -225,12 +225,3 @@ describe('GET /api/v1/ai/status', () => {
   });
 });
 
-// ── 6. Body scan ──────────────────────────────────────────────────────────────
-
-describe('POST /api/v1/ai/body-scan', () => {
-  it('devuelve 501 (no implementado aún)', async () => {
-    const res = await request(app).post('/api/v1/ai/body-scan').send({});
-    expect(res.status).toBe(501);
-    expect(res.body.error).toBeTruthy();
-  });
-});

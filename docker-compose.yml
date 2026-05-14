@@ -64,26 +64,37 @@ services:
     container_name: fittracker_node
     restart: unless-stopped
     environment:
-      PORT:                  3001
+      PORT:                  3000
       NODE_ENV:              ${ENVIRONMENT:-development}
-      DB_PATH:               /data/fittracker.db
       PYTHON_SERVICE_URL:    http://python_service:8000
       INTERNAL_API_SECRET:   ${INTERNAL_API_SECRET}
       PG_CONNECTION_STRING:  postgresql://fittracker:${POSTGRES_PASSWORD}@postgres/fittracker_v2
       CORS_ORIGINS:          ${CORS_ORIGINS:-http://localhost:8080,http://localhost:3000}
+      JWT_SECRET:            ${JWT_SECRET}
       FEATURE_VISION_V2:     ${FEATURE_VISION_V2:-false}
       FEATURE_RAG_ENABLED:   ${FEATURE_RAG_ENABLED:-false}
       FEATURE_WEEKLY_PDF:    ${FEATURE_WEEKLY_PDF:-false}
-    volumes:
-      - sqlite_data:/data          # SQLite persiste fuera del contenedor
+      FEATURE_YOLO_ENABLED:  ${FEATURE_YOLO_ENABLED:-false}
+      SMTP_HOST:             ${SMTP_HOST:-}
+      SMTP_PORT:             ${SMTP_PORT:-587}
+      SMTP_SECURE:           ${SMTP_SECURE:-false}
+      SMTP_USER:             ${SMTP_USER:-}
+      SMTP_PASS:             ${SMTP_PASS:-}
+      SMTP_FROM:             ${SMTP_FROM:-}
+      FRONTEND_URL:          ${FRONTEND_URL:-http://localhost:5173}
     ports:
-      - "3001:3001"
+      - "3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
       python_service:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
 
 volumes:
   pg_data:
-  sqlite_data:

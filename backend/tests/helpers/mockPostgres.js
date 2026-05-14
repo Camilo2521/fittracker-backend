@@ -278,6 +278,28 @@ function _smartQuery(sql = '', params = []) {
 
   // ── SELECT ────────────────────────────────────────────────────────────────
 
+  // CTE — weekly-users (n8n route): must be checked BEFORE individual FROM handlers
+  // because the CTE body also contains FROM registros_entrenamiento
+  if (s.includes('WITH ACTIVOS') && s.includes('FROM CUENTAS')) {
+    const activeUsers = [..._users.values()].slice(0, 5).map(u => ({
+      id:               u.id,
+      nombre:           u.nombre,
+      objetivo:         u.objetivo         || 'maintain',
+      peso:             u.peso             ?? null,
+      altura_cm:        u.altura_cm        ?? null,
+      edad:             u.edad             ?? null,
+      genero:           u.genero           || 'male',
+      nivel_actividad:  u.nivel_actividad  || 'moderate',
+      restricciones:    u.restricciones    || '',
+      weekly_workouts:  3,
+      weekly_diet_logs: 4,
+      avg_kcal:         1800,
+      last_weight:      u.peso ?? null,
+      prev_weight:      u.peso != null ? u.peso + 0.5 : null,
+    }));
+    return { rows: activeUsers, rowCount: activeUsers.length };
+  }
+
   // historial_chat
   if (s.includes('FROM HISTORIAL_CHAT')) {
     const accountId = String(params[0]);

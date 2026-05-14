@@ -215,4 +215,21 @@ describe('GET /api/v1/n8n/weekly-users', () => {
     expect(res.body).toHaveProperty('count');
     expect(res.body).toHaveProperty('week');
   });
+
+  it('usuario sin peso → weightChange es null', async () => {
+    // Register a user without physical data — peso stays null in the mock store
+    await request(app).post('/api/v1/auth/register').send({
+      email: `nopeso_${Date.now()}@test.com`,
+      password: 'Password123!',
+      name: 'Sin Peso',
+    });
+
+    const res = await request(app)
+      .get('/api/v1/n8n/weekly-users')
+      .set(n8nHeader());
+
+    expect(res.status).toBe(200);
+    const nullWeightUser = res.body.users.find(u => u.context.weightChange === null);
+    expect(nullWeightUser).toBeDefined();
+  });
 });
