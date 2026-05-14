@@ -17,6 +17,12 @@ let _workoutLogs    = new Map(); // accountId → [{id, fecha, nombre_rutina, ej
 let _dietLogs       = new Map(); // accountId → [{id, fecha, nombre_plan, comidas_json, ...}]
 let _progressLogs   = new Map(); // accountId → [{id, fecha, peso, ...}]
 let _aiSuggestions  = new Map(); // accountId → [{id, tipo_sugerencia, contenido, creado_en}]
+let _meals          = new Map(); // accountId → [{id, fecha, nombre, calorias, ...}]
+let _recoveryTokens = new Map(); // hash → {id, cuenta_id, hash_token, utilizado, expira_en}
+let _refreshTokens  = new Map(); // hash → {id, cuenta_id, hash_token, expira_en, revocado}
+let _settings       = new Map(); // accountId → {[clave]: valor}
+let _waterIntake    = new Map(); // `${accountId}_${fecha}` → {id, fecha, vasos, ml}
+let _dailyChecks    = new Map(); // `${accountId}_${fecha}` → {id, fecha, controles_json}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function _makeUser(overrides = {}) {
@@ -69,7 +75,7 @@ function _smartQuery(sql = '', params = []) {
 
   // ── COUNT(*) — catch before generic SELECT ───────────────────────────────
   if (/SELECT\s+COUNT\s*\(\s*\*\s*\)/.test(s)) {
-    const accountId = params[0];
+    const accountId = String(params[0]);
     let total = 0;
     if      (s.includes('FROM HISTORIAL_CHAT'))          total = (_chatHistory.get(accountId) || []).length;
     else if (s.includes('FROM REGISTROS_ENTRENAMIENTO')) total = (_workoutLogs.get(accountId) || []).length;
@@ -77,7 +83,8 @@ function _smartQuery(sql = '', params = []) {
     else if (s.includes('FROM REGISTROS_PROGRESO'))      total = (_progressLogs.get(accountId) || []).length;
     else if (s.includes('FROM SUGERENCIAS_IA'))          total = (_aiSuggestions.get(accountId) || []).length;
     // metricas_fisicas, tokens_refresco, etc. → 0
-    return { rows: [{ total }], rowCount: 1 };
+    // Devolver múltiples alias (total, c, count) para cubrir distintas queries
+    return { rows: [{ total, c: total, count: total }], rowCount: 1 };
   }
 
   // ── INSERT ────────────────────────────────────────────────────────────────
@@ -100,7 +107,17 @@ function _smartQuery(sql = '', params = []) {
     return { rows: [user], rowCount: 1 };
   }
 
+  if (s.startsWith('INSERT INTO TOKENS_RECUPERACION')) {
+    const id = _logIdSeq++;
+    const record = { id, cuenta_id: params[0], hash_token: params[1], utilizado: false, expira_en: params[2] };
+    _recoveryTokens.set(params[1], record);
+    return { rows: [], rowCount: 1 };
+  }
+
   if (s.startsWith('INSERT INTO TOKENS')) {
+    const id = _logIdSeq++;
+    const record = { id, cuenta_id: params[0], hash_token: params[1], expira_en: params[2], revocado: false };
+    _refreshTokens.set(params[1], record);
     return { rows: [], rowCount: 1 };
   }
 
@@ -110,7 +127,7 @@ function _smartQuery(sql = '', params = []) {
 
   if (s.startsWith('INSERT INTO HISTORIAL_CHAT')) {
     // Batch INSERT: params = [accountId, rol, contenido, accountId, rol, contenido, ...]
-    const accountId = params[0];
+    const accountId = String(params[0]);
     if (!_chatHistory.has(accountId)) _chatHistory.set(accountId, []);
     const history = _chatHistory.get(accountId);
     for (let i = 0; i < params.length; i += 3) {
@@ -123,7 +140,7 @@ function _smartQuery(sql = '', params = []) {
 
   if (s.startsWith('INSERT INTO REGISTROS_ENTRENAMIENTO')) {
     const id = _logIdSeq++;
-    const accountId = params[0];
+    const accountId = String(params[0]);
     const log = {
       id, cuenta_id: accountId,
       fecha: params[1], nombre_rutina: params[2],
@@ -137,7 +154,7 @@ function _smartQuery(sql = '', params = []) {
 
   if (s.startsWith('INSERT INTO REGISTROS_DIETA')) {
     const id = _logIdSeq++;
-    const accountId = params[0];
+    const accountId = String(params[0]);
     const log = {
       id, cuenta_id: accountId,
       fecha: params[1], nombre_plan: params[2],
@@ -151,7 +168,7 @@ function _smartQuery(sql = '', params = []) {
 
   if (s.startsWith('INSERT INTO REGISTROS_PROGRESO')) {
     const id = _logIdSeq++;
-    const accountId = params[0];
+    const accountId = String(params[0]);
     const log = {
       id, cuenta_id: accountId,
       fecha: params[1], peso: params[2], grasa_corporal: params[3],
@@ -163,9 +180,24 @@ function _smartQuery(sql = '', params = []) {
     return { rows: [{ id }], rowCount: 1 };
   }
 
+  if (s.startsWith('INSERT INTO COMIDAS_DETECTADAS')) {
+    const id = _logIdSeq++;
+    const accountId = String(params[0]);
+    const meal = {
+      id, cuenta_id: accountId,
+      fecha: params[1], nombre: params[2],
+      calorias: params[3], proteinas: params[4],
+      carbohidratos: params[5], grasas: params[6],
+      detectado_por: params[7], confianza: params[8],
+    };
+    if (!_meals.has(accountId)) _meals.set(accountId, []);
+    _meals.get(accountId).push(meal);
+    return { rows: [meal], rowCount: 1 };
+  }
+
   if (s.startsWith('INSERT INTO SUGERENCIAS_IA')) {
     const id = _logIdSeq++;
-    const accountId = params[0];
+    const accountId = String(params[0]);
     const suggestion = {
       id, cuenta_id: accountId,
       tipo_sugerencia: params[1], contenido: params[2],
@@ -189,12 +221,54 @@ function _smartQuery(sql = '', params = []) {
     return { rows: [user], rowCount: 1 };
   }
 
+  // UPDATE cuentas SET hash_contrasena = $1 WHERE id = $2 (password reset)
+  if (s.startsWith('UPDATE CUENTAS SET HASH_CONTRASENA')) {
+    const newHash = params[0];
+    const id      = Number(params[1]);
+    const user    = _ensureUser(id);
+    user.hash_contrasena = newHash;
+    return { rows: [], rowCount: 1 };
+  }
+
   // UPDATE cuentas SET peso = $1 WHERE id = $2 (progress-log weight sync)
   if (s.startsWith('UPDATE CUENTAS SET PESO') && !s.includes('RETURNING')) {
     const id   = Number(params[1]);
     const user = _ensureUser(id);
     user.peso  = params[0];
     return { rows: [], rowCount: 1 };
+  }
+
+  // configuracion (settings)
+  if (s.startsWith('INSERT INTO CONFIGURACION')) {
+    const accountId = String(params[0]);
+    const clave = params[1];
+    const valor = params[2];
+    if (!_settings.has(accountId)) _settings.set(accountId, {});
+    _settings.get(accountId)[clave] = valor;
+    return { rows: [{ clave, valor }], rowCount: 1 };
+  }
+
+  // consumo_agua (water intake)
+  if (s.startsWith('INSERT INTO CONSUMO_AGUA')) {
+    const accountId = String(params[0]);
+    const fecha = params[1];
+    const vasos = params[2];
+    const ml    = params[3];
+    const key   = `${accountId}_${fecha}`;
+    const record = { id: _logIdSeq++, fecha, vasos, ml };
+    _waterIntake.set(key, record);
+    return { rows: [record], rowCount: 1 };
+  }
+
+  // controles_diarios (daily checks)
+  if (s.startsWith('INSERT INTO CONTROLES_DIARIOS')) {
+    const accountId = String(params[0]);
+    const fecha = params[1];
+    const controles_json = (() => { try { return JSON.parse(params[2]); } catch { return params[2] || {}; } })();
+    const key   = `${accountId}_${fecha}`;
+    const record = { id: _logIdSeq++, fecha, controles_json };
+    _dailyChecks.set(key, record);
+    return { rows: [record], rowCount: 1 };
   }
 
   // Generic UPDATE / DELETE
@@ -206,32 +280,73 @@ function _smartQuery(sql = '', params = []) {
 
   // historial_chat
   if (s.includes('FROM HISTORIAL_CHAT')) {
-    const accountId = params[0];
+    const accountId = String(params[0]);
     return { rows: _chatHistory.get(accountId) || [], rowCount: 0 };
   }
 
   // registros_entrenamiento
   if (s.includes('FROM REGISTROS_ENTRENAMIENTO')) {
-    const accountId = params[0];
+    const accountId = String(params[0]);
     return { rows: _workoutLogs.get(accountId) || [], rowCount: 0 };
   }
 
   // registros_dieta
   if (s.includes('FROM REGISTROS_DIETA')) {
-    const accountId = params[0];
+    const accountId = String(params[0]);
     return { rows: _dietLogs.get(accountId) || [], rowCount: 0 };
   }
 
   // registros_progreso
   if (s.includes('FROM REGISTROS_PROGRESO')) {
-    const accountId = params[0];
+    const accountId = String(params[0]);
     return { rows: _progressLogs.get(accountId) || [], rowCount: 0 };
+  }
+
+  // comidas_detectadas
+  if (s.includes('FROM COMIDAS_DETECTADAS')) {
+    const accountId = String(params[0]);
+    return { rows: _meals.get(accountId) || [], rowCount: 0 };
   }
 
   // sugerencias_ia
   if (s.includes('FROM SUGERENCIAS_IA')) {
-    const accountId = params[0];
+    const accountId = String(params[0]);
     return { rows: _aiSuggestions.get(accountId) || [], rowCount: 0 };
+  }
+
+  // configuracion (settings)
+  if (s.includes('FROM CONFIGURACION')) {
+    const accountId = String(params[0]);
+    const store = _settings.get(accountId) || {};
+    if (params[1] !== undefined) {
+      // GET /:key — params[1] = clave
+      const clave = params[1];
+      return clave in store
+        ? { rows: [{ clave, valor: store[clave] }], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
+    }
+    // GET all — return sorted array of { clave, valor }
+    const rows = Object.entries(store).sort(([a], [b]) => a.localeCompare(b))
+      .map(([clave, valor]) => ({ clave, valor }));
+    return { rows, rowCount: rows.length };
+  }
+
+  // consumo_agua (water intake)
+  if (s.includes('FROM CONSUMO_AGUA')) {
+    const accountId = String(params[0]);
+    const fecha = params[1];
+    const key = `${accountId}_${fecha}`;
+    const record = _waterIntake.get(key);
+    return record ? { rows: [record], rowCount: 1 } : { rows: [], rowCount: 0 };
+  }
+
+  // controles_diarios (daily checks)
+  if (s.includes('FROM CONTROLES_DIARIOS')) {
+    const accountId = String(params[0]);
+    const fecha = params[1];
+    const key = `${accountId}_${fecha}`;
+    const record = _dailyChecks.get(key);
+    return record ? { rows: [record], rowCount: 1 } : { rows: [], rowCount: 0 };
   }
 
   // SELECT id FROM cuentas WHERE correo (duplicate check)
@@ -253,8 +368,26 @@ function _smartQuery(sql = '', params = []) {
     return { rows: [user], rowCount: 1 };
   }
 
-  // tokens_refresco
+  // tokens_recuperacion (password reset)
+  if (s.includes('FROM TOKENS_RECUPERACION')) {
+    const hash = params[0];
+    const record = _recoveryTokens.get(hash);
+    return record ? { rows: [record], rowCount: 1 } : { rows: [], rowCount: 0 };
+  }
+
+  // tokens_refresco — supports JOIN + hash-based lookup for refresh route
   if (s.includes('FROM TOKENS_REFRESCO') || s.includes('TOKENS_REFRESCO RT')) {
+    if (s.includes('HASH_TOKEN')) {
+      const hash = params[0];
+      const rt = _refreshTokens.get(hash);
+      if (!rt) return { rows: [], rowCount: 0 };
+      const account = _findById(rt.cuenta_id);
+      if (!account) return { rows: [], rowCount: 0 };
+      return {
+        rows: [{ ...rt, acc_id: account.id, correo: account.correo, nombre: account.nombre }],
+        rowCount: 1,
+      };
+    }
     return { rows: [], rowCount: 0 };
   }
 
@@ -286,6 +419,12 @@ function resetMocks() {
   _dietLogs.clear();
   _progressLogs.clear();
   _aiSuggestions.clear();
+  _meals.clear();
+  _recoveryTokens.clear();
+  _refreshTokens.clear();
+  _settings.clear();
+  _waterIntake.clear();
+  _dailyChecks.clear();
 
   mockPg.query.mockImplementation(async (sql, params) => _smartQuery(sql, params));
   mockPg.healthCheck.mockResolvedValue('ok');
@@ -297,4 +436,13 @@ function resetMocks() {
   mockPg.pool.connect.mockResolvedValue(_clientInstance);
 }
 
-module.exports = { mockPg, resetMocks, TEST_PASSWORD, TEST_HASH, makeUser: _makeUser };
+function plantRecoveryToken(accountId, rawToken) {
+  const crypto = require('crypto');
+  const hash   = crypto.createHash('sha256').update(rawToken).digest('hex');
+  const id     = _logIdSeq++;
+  const record = { id, cuenta_id: accountId, hash_token: hash, utilizado: false, expira_en: new Date(Date.now() + 3_600_000) };
+  _recoveryTokens.set(hash, record);
+  return record;
+}
+
+module.exports = { mockPg, resetMocks, TEST_PASSWORD, TEST_HASH, makeUser: _makeUser, plantRecoveryToken };

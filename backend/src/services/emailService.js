@@ -26,7 +26,7 @@ function _getTransporter() {
 async function sendPasswordReset(toEmail, resetToken) {
   const transport = _getTransporter();
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  const resetLink   = `${frontendUrl}/reset-password?token=${resetToken}`;
+  const resetLink   = `${frontendUrl}?action=reset-password&token=${resetToken}`;
   const from        = process.env.SMTP_FROM || process.env.SMTP_USER || 'noreply@fittracker.app';
 
   if (!transport) {

@@ -16,7 +16,12 @@ module.exports = {
     '!src/app.js',
   ],
   coverageThreshold: {
-    global: { lines: 70, functions: 70, branches: 60 },
+    global: { lines: 92, functions: 92, branches: 80 },
+    // Archivos críticos tienen umbrales propios más altos
+    './src/routes/v1/auth.js':     { lines: 95, branches: 80 },
+    './src/middleware/featureFlags.js': { lines: 100, branches: 100 },
+    './src/utils/metrics.js':      { lines: 100, branches: 85 },
+    './src/utils/internalToken.js': { lines: 100, branches: 85 },
   },
   testTimeout: 15000,
   forceExit: true,

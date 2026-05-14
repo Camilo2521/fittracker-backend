@@ -1,5 +1,66 @@
 'use strict';
 
+/**
+ * @swagger
+ * tags:
+ *   name: Configuración
+ *   description: Par clave-valor de preferencias del usuario
+ *
+ * /api/v1/settings:
+ *   get:
+ *     tags: [Configuración]
+ *     summary: Obtener todas las configuraciones del usuario
+ *     responses:
+ *       200:
+ *         description: Objeto { clave → valor }
+ *
+ * /api/v1/settings/{key}:
+ *   get:
+ *     tags: [Configuración]
+ *     summary: Obtener una configuración por clave
+ *     parameters:
+ *       - in: path
+ *         name: key
+ *         required: true
+ *         schema: { type: string, example: "theme" }
+ *     responses:
+ *       200:  { description: Configuración encontrada }
+ *       400:  { description: Clave inválida }
+ *       404:  { description: Configuración no encontrada }
+ *   put:
+ *     tags: [Configuración]
+ *     summary: Crear o actualizar una configuración (upsert)
+ *     parameters:
+ *       - in: path
+ *         name: key
+ *         required: true
+ *         schema: { type: string, example: "theme" }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [value]
+ *             properties:
+ *               value: { type: string, example: "dark" }
+ *     responses:
+ *       200: { description: Configuración guardada }
+ *       400: { description: Clave o valor inválido }
+ *   delete:
+ *     tags: [Configuración]
+ *     summary: Eliminar una configuración
+ *     parameters:
+ *       - in: path
+ *         name: key
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       204: { description: Eliminada }
+ *       400: { description: Clave inválida }
+ *       404: { description: No encontrada }
+ */
+
 const express         = require('express');
 const router          = express.Router();
 const pg              = require('../../db/postgres');

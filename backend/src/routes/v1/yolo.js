@@ -1,13 +1,16 @@
 'use strict';
 
-const express = require('express');
-const router  = express.Router();
+const express       = require('express');
+const router        = express.Router();
 const { validateEnum, abort } = require('../../utils/validate');
 const { VALID_EXERCISE_TYPES } = require('../../utils/constants');
-const { requireAuth } = require('./auth');
+const { requireAuth }  = require('./auth');
+const featureFlags     = require('../../middleware/featureFlags');
 
 const PYTHON_BASE = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
 const { generateInternalToken } = require('../../utils/internalToken');
+
+const requireYolo = featureFlags.require('yolo_enabled');
 
 /**
  * POST /api/v1/yolo/analyze/:exerciseType
@@ -17,7 +20,7 @@ const { generateInternalToken } = require('../../utils/internalToken');
  * Proxy directo al microservicio Python para mantener la latencia baja.
  * Devuelve { reps, phase, form_score, angles, issues, tips, keypoints }.
  */
-router.post('/analyze/:exerciseType', requireAuth, async (req, res) => {
+router.post('/analyze/:exerciseType', requireAuth, requireYolo, async (req, res) => {
   const { exerciseType } = req.params;
   if (abort(res, [validateEnum(exerciseType, 'exerciseType', VALID_EXERCISE_TYPES, { required: true })])) return;
   const sessionId = req.query.session_id || 'default';
@@ -54,7 +57,7 @@ router.post('/analyze/:exerciseType', requireAuth, async (req, res) => {
 /**
  * GET /api/v1/yolo/session/:sessionId/summary
  */
-router.get('/session/:sessionId/summary', requireAuth, async (req, res) => {
+router.get('/session/:sessionId/summary', requireAuth, requireYolo, async (req, res) => {
   try {
     const pyRes = await fetch(
       `${PYTHON_BASE}/frames/session/${req.params.sessionId}/summary`,
@@ -70,7 +73,7 @@ router.get('/session/:sessionId/summary', requireAuth, async (req, res) => {
 /**
  * DELETE /api/v1/yolo/session/:sessionId
  */
-router.delete('/session/:sessionId', requireAuth, async (req, res) => {
+router.delete('/session/:sessionId', requireAuth, requireYolo, async (req, res) => {
   try {
     const pyRes = await fetch(
       `${PYTHON_BASE}/frames/session/${req.params.sessionId}`,

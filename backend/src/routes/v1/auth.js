@@ -109,7 +109,7 @@ async function _issueTokens(account, req) {
  *       201: { description: Usuario creado, token JWT }
  *       409: { description: Email ya registrado }
  */
-router.post('/register', authLimiter, async (req, res) => {
+router.post('/register', authLimiter, asyncHandler(async (req, res) => {
   const {
     email, password, name = '',
     goal = 'maintain', weight, height, age, gender,
@@ -125,34 +125,29 @@ router.post('/register', authLimiter, async (req, res) => {
   if (restrictions && restrictions.length > 500) return res.status(400).json({ error: 'restrictions no puede superar 500 caracteres' });
   if (name         && name.length         >  100) return res.status(400).json({ error: 'name no puede superar 100 caracteres' });
 
-  try {
-    const exists = await pg.query('SELECT id FROM cuentas WHERE correo = $1', [email.trim()]);
-    if (exists.rows.length) return res.status(409).json({ error: 'Este email ya está registrado' });
+  const exists = await pg.query('SELECT id FROM cuentas WHERE correo = $1', [email.trim()]);
+  if (exists.rows.length) return res.status(409).json({ error: 'Este email ya está registrado' });
 
-    const hash = await bcrypt.hash(password, 10);
-    // El onboarding se considera completo solo si se tienen todos los datos físicos
-    // necesarios para calcular BMR/TDEE (peso, altura, edad, género y objetivo).
-    const onboardingCompleto = !!(weight && height && age && gender && goal);
+  const hash = await bcrypt.hash(password, 10);
+  // El onboarding se considera completo solo si se tienen todos los datos físicos
+  // necesarios para calcular BMR/TDEE (peso, altura, edad, género y objetivo).
+  const onboardingCompleto = !!(weight && height && age && gender && goal);
 
-    const { rows } = await pg.query(
-      `INSERT INTO cuentas
-         (correo, hash_contrasena, nombre, objetivo, peso, altura_cm, edad, genero, nivel_actividad, restricciones, onboarding_completado)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       RETURNING *`,
-      [
-        email.trim(), hash, name.trim(),
-        goal, weight || null, height || null, age || null, gender || null,
-        activityLevel, restrictions,
-        onboardingCompleto,
-      ]
-    );
-    const { accessToken, refreshToken } = await _issueTokens(rows[0], req);
-    res.status(201).json({ accessToken, refreshToken, user: _safeUser(rows[0]) });
-  } catch (err) {
-    console.error('[auth] register error:', err);
-    res.status(500).json({ error: 'Error al registrar usuario' });
-  }
-});
+  const { rows } = await pg.query(
+    `INSERT INTO cuentas
+       (correo, hash_contrasena, nombre, objetivo, peso, altura_cm, edad, genero, nivel_actividad, restricciones, onboarding_completado)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     RETURNING *`,
+    [
+      email.trim(), hash, name.trim(),
+      goal, weight || null, height || null, age || null, gender || null,
+      activityLevel, restrictions,
+      onboardingCompleto,
+    ]
+  );
+  const { accessToken, refreshToken } = await _issueTokens(rows[0], req);
+  res.status(201).json({ accessToken, refreshToken, user: _safeUser(rows[0]) });
+}));
 
 /**
  * @swagger
@@ -175,25 +170,20 @@ router.post('/register', authLimiter, async (req, res) => {
  *       200: { description: Token JWT + datos de usuario }
  *       401: { description: Credenciales incorrectas }
  */
-router.post('/login', authLimiter, async (req, res) => {
+router.post('/login', authLimiter, asyncHandler(async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
 
-  try {
-    const { rows } = await pg.query('SELECT * FROM cuentas WHERE correo = $1', [email.trim()]);
-    const account  = rows[0];
-    if (!account) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
+  const { rows } = await pg.query('SELECT * FROM cuentas WHERE correo = $1', [email.trim()]);
+  const account  = rows[0];
+  if (!account) return res.status(401).json({ error: 'Email o contraseña incorrectos' });
 
-    const ok = await bcrypt.compare(password, account.hash_contrasena);
-    if (!ok)  return res.status(401).json({ error: 'Email o contraseña incorrectos' });
+  const ok = await bcrypt.compare(password, account.hash_contrasena);
+  if (!ok)  return res.status(401).json({ error: 'Email o contraseña incorrectos' });
 
-    const { accessToken, refreshToken } = await _issueTokens(account, req);
-    res.json({ accessToken, refreshToken, user: _safeUser(account) });
-  } catch (err) {
-    console.error('[auth] login error:', err);
-    res.status(500).json({ error: 'Error al iniciar sesión' });
-  }
-});
+  const { accessToken, refreshToken } = await _issueTokens(account, req);
+  res.json({ accessToken, refreshToken, user: _safeUser(account) });
+}));
 
 /**
  * @swagger
@@ -534,7 +524,7 @@ router.get('/ai-suggestions', requireAuth, asyncHandler(async (req, res) => {
  *     responses:
  *       200: { description: Si el email existe, se enviará un enlace }
  */
-router.post('/forgot-password', authLimiter, async (req, res) => {
+router.post('/forgot-password', authLimiter, asyncHandler(async (req, res) => {
   const { email: userEmail } = req.body;
   if (!userEmail) return res.status(400).json({ error: 'Email requerido' });
 
@@ -561,9 +551,9 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
     res.json(generic);
   } catch (err) {
     console.error('[auth] forgot-password error:', err);
-    res.json(generic); // No revelar el error al cliente
+    res.json(generic); // Deliberate: don't propagate — generic response regardless of DB errors
   }
-});
+}));
 
 // ── POST /api/v1/auth/reset-password ─────────────────────────────────────────
 /**
@@ -710,19 +700,14 @@ router.post('/refresh', authLimiter, asyncHandler(async (req, res) => {
 }));
 
 // ── POST /api/v1/auth/logout ──────────────────────────────────────────────────
-router.post('/logout', async (req, res) => {
+router.post('/logout', asyncHandler(async (req, res) => {
   const { refreshToken } = req.body;
   if (!refreshToken) return res.status(200).json({ ok: true });
 
-  try {
-    const hash = _hashToken(refreshToken);
-    await pg.query('UPDATE tokens_refresco SET revocado = TRUE WHERE hash_token = $1', [hash]);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('[auth] logout error:', err);
-    res.status(500).json({ error: 'Error al cerrar sesión' });
-  }
-});
+  const hash = _hashToken(refreshToken);
+  await pg.query('UPDATE tokens_refresco SET revocado = TRUE WHERE hash_token = $1', [hash]);
+  res.json({ ok: true });
+}));
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 function requireAuth(req, res, next) {

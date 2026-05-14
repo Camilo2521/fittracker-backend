@@ -5,7 +5,9 @@ jest.mock('../../src/services/visionClient', () => require('../helpers/mockVisio
 
 const request = require('supertest');
 const { mockPg } = require('../helpers/mockPostgres');
+const { mockVision } = require('../helpers/mockVision');
 const { makeToken, bearerHeader } = require('../helpers/auth');
+const { FLAGS } = require('../../src/middleware/featureFlags');
 
 const TOKEN = makeToken(1);
 
@@ -117,6 +119,35 @@ describe('POST /api/v1/diets/generate', () => {
         .set(bearerHeader(TOKEN))
         .send({ weekStart: WEEK, goal: 'alien' });
       expect(res.body.dailyCalorieTarget).toBe(2100);
+    });
+  });
+
+  describe('Ruta RAG habilitada (FLAGS.rag_enabled = true)', () => {
+    beforeEach(() => { FLAGS.rag_enabled = true; });
+    afterEach(()  => { FLAGS.rag_enabled = false; mockVision.generateDiet.mockReset(); });
+
+    it('devuelve datos del servicio RAG cuando ok=true', async () => {
+      mockVision.generateDiet.mockResolvedValueOnce({
+        ok:   true,
+        data: { source: 'rag', dailyCalorieTarget: 1900, days: [] },
+      });
+      const res = await request(app)
+        .post('/api/v1/diets/generate')
+        .set(bearerHeader(TOKEN))
+        .send({ weekStart: WEEK, goal: 'lose' });
+      expect(res.status).toBe(200);
+      expect(res.body.source).toBe('rag');
+      expect(res.body.dailyCalorieTarget).toBe(1900);
+    });
+
+    it('hace fallback a dieta local cuando RAG devuelve ok=false', async () => {
+      mockVision.generateDiet.mockResolvedValueOnce({ ok: false, fallback: true });
+      const res = await request(app)
+        .post('/api/v1/diets/generate')
+        .set(bearerHeader(TOKEN))
+        .send({ weekStart: WEEK, goal: 'maintain' });
+      expect(res.status).toBe(200);
+      expect(res.body.source).toBe('local');
     });
   });
 });

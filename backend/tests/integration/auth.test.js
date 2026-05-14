@@ -5,6 +5,7 @@ jest.mock('../../src/services/visionClient', () => require('../helpers/mockVisio
 
 const request = require('supertest');
 const { registerUser, bearerHeader } = require('../helpers/auth');
+const { plantRecoveryToken }         = require('../helpers/mockPostgres');
 
 let app;
 beforeAll(() => {
@@ -420,5 +421,234 @@ describe('AI Suggestions', () => {
       .get('/api/v1/auth/ai-suggestions')
       .set(bearerHeader(token));
     expect(res.body.data.length).toBeLessThanOrEqual(30);
+  });
+});
+
+// ── Export CSV ─────────────────────────────────────────────────────────────────
+
+describe('GET /api/v1/auth/export/csv', () => {
+  let token;
+  beforeAll(async () => {
+    ({ token } = await registerUser(app));
+    await request(app).post('/api/v1/auth/workout-log').set(bearerHeader(token))
+      .send({ date: '2025-01-10', routineName: 'Piernas export', exercises: [] });
+    await request(app).post('/api/v1/auth/progress-log').set(bearerHeader(token))
+      .send({ date: '2025-01-10', weight: 80 });
+    await request(app).post('/api/v1/auth/diet-log').set(bearerHeader(token))
+      .send({ date: '2025-01-10', planName: 'Dieta export', totalKcal: 2000 });
+  });
+
+  it('401 sin token', async () => {
+    const res = await request(app).get('/api/v1/auth/export/csv');
+    expect(res.status).toBe(401);
+  });
+
+  it('200 type=workouts → CSV con cabecera y datos', async () => {
+    const res = await request(app)
+      .get('/api/v1/auth/export/csv?type=workouts')
+      .set(bearerHeader(token));
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/csv/i);
+    expect(res.headers['content-disposition']).toMatch(/attachment.*workouts/i);
+    expect(res.text).toMatch(/fecha,rutina/i);
+    expect(res.text).toContain('Piernas export');
+  });
+
+  it('200 type=progress → CSV con cabecera de progreso', async () => {
+    const res = await request(app)
+      .get('/api/v1/auth/export/csv?type=progress')
+      .set(bearerHeader(token));
+    expect(res.status).toBe(200);
+    expect(res.text).toMatch(/peso_kg/i);
+  });
+
+  it('200 type=diets → CSV con cabecera de dieta', async () => {
+    const res = await request(app)
+      .get('/api/v1/auth/export/csv?type=diets')
+      .set(bearerHeader(token));
+    expect(res.status).toBe(200);
+    expect(res.text).toMatch(/plan,kcal/i);
+    expect(res.text).toContain('Dieta export');
+  });
+
+  it('200 sin type (default workouts)', async () => {
+    const res = await request(app)
+      .get('/api/v1/auth/export/csv')
+      .set(bearerHeader(token));
+    expect(res.status).toBe(200);
+    expect(res.text).toMatch(/fecha,rutina/i);
+  });
+
+  it('400 con type inválido', async () => {
+    const res = await request(app)
+      .get('/api/v1/auth/export/csv?type=hacks')
+      .set(bearerHeader(token));
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/type/i);
+  });
+});
+
+// ── Forgot password ────────────────────────────────────────────────────────────
+
+describe('POST /api/v1/auth/forgot-password', () => {
+  it('400 sin email', async () => {
+    const res = await request(app).post('/api/v1/auth/forgot-password').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/email/i);
+  });
+
+  it('200 genérico cuando el email no existe (no revela info)', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: 'noexiste_xyz@test.com' });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.message).toMatch(/enlace/i);
+  });
+
+  it('200 genérico cuando el email existe (misma respuesta)', async () => {
+    const { credentials } = await registerUser(app);
+    const res = await request(app)
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: credentials.email });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.message).toMatch(/enlace/i);
+  });
+});
+
+// ── Reset password ─────────────────────────────────────────────────────────────
+
+describe('POST /api/v1/auth/reset-password', () => {
+  it('400 sin token ni password', async () => {
+    const res = await request(app).post('/api/v1/auth/reset-password').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/token|contraseña/i);
+  });
+
+  it('400 contraseña < 8 caracteres', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/reset-password')
+      .send({ token: 'anytoken', password: '1234567' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/8 car/i);
+  });
+
+  it('400 token inválido / no registrado', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/reset-password')
+      .send({ token: 'token-que-no-existe-xyz', password: 'NewPassword123!' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/inválido/i);
+  });
+
+  it('200 con token válido → contraseña actualizada', async () => {
+    const { user } = await registerUser(app);
+    const rawToken = 'raw-reset-token-for-test-suite-32bytes';
+    plantRecoveryToken(user.id, rawToken);
+
+    const res = await request(app)
+      .post('/api/v1/auth/reset-password')
+      .send({ token: rawToken, password: 'NuevaContraseña123!' });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.message).toMatch(/actualizada/i);
+  });
+});
+
+// ── Delete account ─────────────────────────────────────────────────────────────
+
+describe('DELETE /api/v1/auth/me', () => {
+  it('400 sin contraseña', async () => {
+    const { token } = await registerUser(app);
+    const res = await request(app)
+      .delete('/api/v1/auth/me')
+      .set(bearerHeader(token))
+      .send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/contraseña/i);
+  });
+
+  it('401 con contraseña incorrecta', async () => {
+    const { token } = await registerUser(app);
+    const res = await request(app)
+      .delete('/api/v1/auth/me')
+      .set(bearerHeader(token))
+      .send({ password: 'WrongPassword999!' });
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/incorrecta/i);
+  });
+
+  it('200 con contraseña correcta → cuenta eliminada', async () => {
+    const { token, credentials } = await registerUser(app);
+    const res = await request(app)
+      .delete('/api/v1/auth/me')
+      .set(bearerHeader(token))
+      .send({ password: credentials.password });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.message).toMatch(/eliminad/i);
+  });
+
+  it('401 sin token', async () => {
+    const res = await request(app).delete('/api/v1/auth/me').send({ password: 'anything' });
+    expect(res.status).toBe(401);
+  });
+});
+
+// ── Logout ─────────────────────────────────────────────────────────────────────
+
+describe('POST /api/v1/auth/logout', () => {
+  it('200 sin refreshToken → ok inmediato', async () => {
+    const res = await request(app).post('/api/v1/auth/logout').send({});
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+
+  it('200 con refreshToken → lo revoca y devuelve ok', async () => {
+    const { credentials } = await registerUser(app);
+    const loginRes = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: credentials.email, password: credentials.password });
+    const { refreshToken } = loginRes.body;
+
+    const res = await request(app).post('/api/v1/auth/logout').send({ refreshToken });
+    expect(res.status).toBe(200);
+    expect(res.body.ok).toBe(true);
+  });
+});
+
+// ── Refresh token ──────────────────────────────────────────────────────────────
+
+describe('POST /api/v1/auth/refresh', () => {
+  it('400 sin refreshToken', async () => {
+    const res = await request(app).post('/api/v1/auth/refresh').send({});
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/refreshToken/i);
+  });
+
+  it('401 con token inválido', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: 'token-que-no-existe-en-la-db' });
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/inválido/i);
+  });
+
+  it('200 con token válido → rota y emite nuevos tokens', async () => {
+    const { credentials } = await registerUser(app);
+    const loginRes = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: credentials.email, password: credentials.password });
+    const { refreshToken } = loginRes.body;
+    expect(refreshToken).toBeTruthy();
+
+    const res = await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken });
+    expect(res.status).toBe(200);
+    expect(res.body.accessToken).toBeTruthy();
+    expect(res.body.refreshToken).toBeTruthy();
+    expect(res.body.refreshToken).not.toBe(refreshToken); // token rotated
   });
 });

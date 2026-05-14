@@ -5,7 +5,9 @@ jest.mock('../../src/services/visionClient', () => require('../helpers/mockVisio
 
 const request = require('supertest');
 const { mockPg } = require('../helpers/mockPostgres');
+const { mockVision } = require('../helpers/mockVision');
 const { makeToken, bearerHeader } = require('../helpers/auth');
+const { FLAGS } = require('../../src/middleware/featureFlags');
 
 const TOKEN = makeToken(1);
 
@@ -106,6 +108,34 @@ describe('POST /api/v1/routines/generate', () => {
         .post('/api/v1/routines/generate')
         .set(bearerHeader(TOKEN))
         .send({ goal: 'lose' });
+      expect(res.status).toBe(200);
+      expect(res.body.source).toBe('local');
+    });
+  });
+
+  describe('Ruta RAG habilitada (FLAGS.rag_enabled = true)', () => {
+    beforeEach(() => { FLAGS.rag_enabled = true; });
+    afterEach(()  => { FLAGS.rag_enabled = false; mockVision.generateRoutine.mockReset(); });
+
+    it('devuelve datos del servicio RAG cuando ok=true', async () => {
+      mockVision.generateRoutine.mockResolvedValueOnce({
+        ok:   true,
+        data: { source: 'rag', weeklyDays: 5, days: [] },
+      });
+      const res = await request(app)
+        .post('/api/v1/routines/generate')
+        .set(bearerHeader(TOKEN))
+        .send({});
+      expect(res.status).toBe(200);
+      expect(res.body.source).toBe('rag');
+    });
+
+    it('hace fallback a rutina local cuando RAG devuelve ok=false', async () => {
+      mockVision.generateRoutine.mockResolvedValueOnce({ ok: false, fallback: true });
+      const res = await request(app)
+        .post('/api/v1/routines/generate')
+        .set(bearerHeader(TOKEN))
+        .send({ goal: 'maintain' });
       expect(res.status).toBe(200);
       expect(res.body.source).toBe('local');
     });

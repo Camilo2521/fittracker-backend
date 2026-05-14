@@ -6,6 +6,82 @@ const pg              = require('../../db/postgres');
 const { requireAuth } = require('./auth');
 const asyncHandler    = require('../../utils/asyncHandler');
 
+/**
+ * @swagger
+ * tags:
+ *   name: Hábitos
+ *   description: Seguimiento diario de agua y controles de hábitos
+ *
+ * /api/v1/habits/water:
+ *   get:
+ *     tags: [Hábitos]
+ *     summary: Obtener consumo de agua del día
+ *     parameters:
+ *       - in: query
+ *         name: date
+ *         schema: { type: string, example: "2026-05-13" }
+ *         description: Fecha (por defecto hoy)
+ *     responses:
+ *       200:
+ *         description: Vasos consumidos
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 vasos: { type: number }
+ *                 ml:    { type: number }
+ *                 fecha: { type: string }
+ *   put:
+ *     tags: [Hábitos]
+ *     summary: Registrar consumo de agua (upsert)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [vasos]
+ *             properties:
+ *               vasos: { type: number, example: 6 }
+ *               ml:    { type: number, example: 1500 }
+ *               date:  { type: string, example: "2026-05-13" }
+ *     responses:
+ *       200: { description: Registro guardado }
+ *       400: { description: vasos inválido }
+ *
+ * /api/v1/habits/daily-check:
+ *   get:
+ *     tags: [Hábitos]
+ *     summary: Obtener controles diarios del día
+ *     parameters:
+ *       - in: query
+ *         name: date
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Objeto de controles { [hábito]: boolean }
+ *   put:
+ *     tags: [Hábitos]
+ *     summary: Guardar controles diarios (upsert)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [checks]
+ *             properties:
+ *               checks:
+ *                 type: object
+ *                 additionalProperties: { type: boolean }
+ *                 example: { agua: true, ejercicio: false }
+ *               date: { type: string, example: "2026-05-13" }
+ *     responses:
+ *       200: { description: Controles guardados }
+ *       400: { description: checks inválido }
+ */
+
 // ── Water intake ───────────────────────────────────────────────────────────────
 
 /**

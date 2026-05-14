@@ -72,10 +72,11 @@ describe('Feature Flags', () => {
     }
 
     it('calls next() when the flag is enabled', () => {
-      const { require: requireFlag, FLAGS } = loadModule({ FEATURE_WEEKLY_PDF: 'true' });
-      FLAGS.weekly_pdf = true; // Reload already sets it — explicit for clarity
+      const { require: requireFlag } = loadModule();
+      process.env.FEATURE_WEEKLY_PDF = 'true';
       const { req, res, next } = makeReqRes();
       requireFlag('weekly_pdf')(req, res, next);
+      delete process.env.FEATURE_WEEKLY_PDF;
       expect(next).toHaveBeenCalledTimes(1);
       expect(res._status).toBeNull();
     });

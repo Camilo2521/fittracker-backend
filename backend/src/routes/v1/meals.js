@@ -7,6 +7,64 @@ const { requireAuth } = require('./auth');
 const asyncHandler    = require('../../utils/asyncHandler');
 
 /**
+ * @swagger
+ * tags:
+ *   name: Comidas
+ *   description: Comidas detectadas por IA o entrada manual
+ *
+ * /api/v1/meals:
+ *   post:
+ *     tags: [Comidas]
+ *     summary: Guardar comida detectada
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, calories]
+ *             properties:
+ *               name:       { type: string,  example: "Arroz con pollo" }
+ *               calories:   { type: number,  example: 450 }
+ *               protein:    { type: number,  example: 32 }
+ *               carbs:      { type: number,  example: 48 }
+ *               fat:        { type: number,  example: 10 }
+ *               confidence: { type: number,  example: 0.91 }
+ *               detectedBy: { type: string,  example: "ia" }
+ *               date:       { type: string,  example: "2026-05-13" }
+ *     responses:
+ *       201: { description: Comida guardada }
+ *       400: { description: name o calories inválidos }
+ *   get:
+ *     tags: [Comidas]
+ *     summary: Obtener comidas del día con totales
+ *     parameters:
+ *       - in: query
+ *         name: date
+ *         schema: { type: string }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 50 }
+ *     responses:
+ *       200:
+ *         description: Lista de comidas + totales calóricos
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 data:   { type: array }
+ *                 date:   { type: string }
+ *                 totals:
+ *                   type: object
+ *                   properties:
+ *                     calories: { type: number }
+ *                     protein:  { type: number }
+ *                     carbs:    { type: number }
+ *                     fat:      { type: number }
+ */
+
+/**
  * POST /api/v1/meals
  * Guarda una comida detectada (por IA o entrada manual).
  * Body: { name, date?, calories, protein?, carbs?, fat?, confidence?, detectedBy? }
