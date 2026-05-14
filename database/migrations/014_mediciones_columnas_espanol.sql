@@ -9,13 +9,32 @@
 -- ============================================================
 
 -- ── 1. Traducir columnas de mediciones_progreso ───────────────────────────────
-
-ALTER TABLE mediciones_progreso RENAME COLUMN type            TO tipo;
-ALTER TABLE mediciones_progreso RENAME COLUMN metrics         TO metricas;
-ALTER TABLE mediciones_progreso RENAME COLUMN progress        TO progreso;
-ALTER TABLE mediciones_progreso RENAME COLUMN recommendations TO recomendaciones;
--- "timestamp" es palabra reservada en PostgreSQL → requiere comillas
-ALTER TABLE mediciones_progreso RENAME COLUMN "timestamp"     TO marca_temporal;
+-- Nota: la migración 005 ya renombró estas columnas (type→tipo, metrics→metricas_json,
+-- etc.). Este bloque es un guard idempotente: solo renombra si la columna inglesa
+-- todavía existe (p.ej. en una base de datos que saltó la 005).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'mediciones_progreso' AND column_name = 'type') THEN
+    ALTER TABLE mediciones_progreso RENAME COLUMN type TO tipo;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'mediciones_progreso' AND column_name = 'metrics') THEN
+    ALTER TABLE mediciones_progreso RENAME COLUMN metrics TO metricas_json;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'mediciones_progreso' AND column_name = 'progress') THEN
+    ALTER TABLE mediciones_progreso RENAME COLUMN progress TO progreso_json;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'mediciones_progreso' AND column_name = 'recommendations') THEN
+    ALTER TABLE mediciones_progreso RENAME COLUMN recommendations TO recomendaciones_json;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'mediciones_progreso' AND column_name = 'timestamp') THEN
+    ALTER TABLE mediciones_progreso RENAME COLUMN "timestamp" TO marca_tiempo;
+  END IF;
+END $$;
 
 -- ── 2. Índice en tokens_refresco(cuenta_id) ────────────────────────────────────
 -- Cubre: "revocar todos los tokens de un usuario", auditorías de sesión,
