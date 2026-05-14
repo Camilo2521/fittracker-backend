@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.routers import health, vision, rag
-from app.routers import pdf, frames, predictor as predictor_router
+from app.routers import pdf, frames, predictor as predictor_router, body_scan as body_scan_router
 from app.config import get_settings
 import logging
 
@@ -72,3 +72,4 @@ app.include_router(frames.router)
 app.include_router(pdf.router)
 app.include_router(rag.router)
 app.include_router(predictor_router.router)
+app.include_router(body_scan_router.router)

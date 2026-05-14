@@ -151,7 +151,7 @@ router.get('/forecast', requireAuth, asyncHandler(async (req, res) => {
   // ── 4. Historial calórico (registros_dieta) ────────────────────────────────
   const { rows: cRows } = await pg.query(
     `SELECT fecha::text AS date,
-            SUM(calorias)::float AS calories
+            SUM(total_kcal)::float AS calories
      FROM registros_dieta
      WHERE cuenta_id = $1
      GROUP BY fecha ORDER BY fecha ASC LIMIT 60`,

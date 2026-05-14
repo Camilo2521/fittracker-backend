@@ -87,4 +87,33 @@ router.delete('/session/:sessionId', requireAuth, requireYolo, asyncHandler(asyn
   }
 }));
 
+/**
+ * POST /api/v1/yolo/body-scan
+ * Analiza una foto de cuerpo completo con YOLOv8-pose.
+ * Público — se usa durante el registro (sin token).
+ * Body: { imageBase64: string, gender?: 'male'|'female'|'other' }
+ */
+router.post('/body-scan', asyncHandler(async (req, res) => {
+  const { imageBase64 } = req.body;
+  const gender = req.body.gender || 'male';
+  if (!imageBase64) return res.status(400).json({ error: 'imageBase64 es requerido' });
+
+  try {
+    const pyRes = await fetch(`${PYTHON_BASE}/body-scan`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':     'application/json',
+        'x-internal-token': generateInternalToken(),
+      },
+      body:   JSON.stringify({ image_b64: imageBase64, gender }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const data = await pyRes.json().catch(() => ({}));
+    res.status(pyRes.ok ? 200 : pyRes.status).json(data);
+  } catch (err) {
+    console.error('[yolo] POST /body-scan error:', err.message);
+    res.status(503).json({ personDetected: false, error: 'Servicio de análisis no disponible' });
+  }
+}));
+
 module.exports = router;
