@@ -60,7 +60,7 @@ const asyncHandler    = require('../../utils/asyncHandler');
  *         schema: { type: string }
  *     responses:
  *       200:
- *         description: Objeto de controles { [hábito]: boolean }
+ *         description: "Objeto de controles { [hábito]: boolean }"
  *   put:
  *     tags: [Hábitos]
  *     summary: Guardar controles diarios (upsert)

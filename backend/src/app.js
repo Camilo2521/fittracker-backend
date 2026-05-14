@@ -22,22 +22,6 @@ app.use(requestId);
 app.set('trust proxy', 1);
 
 // CSP estricta para toda la API — sin unsafe-inline
-app.use(helmet({
-  crossOriginResourcePolicy: false,
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc:  ["'self'"],
-      scriptSrc:   ["'self'"],
-      styleSrc:    ["'self'"],
-      imgSrc:      ["'self'", 'data:'],
-      connectSrc:  ["'self'"],
-      frameSrc:    ["'none'"],
-      objectSrc:   ["'none'"],
-    },
-  },
-}));
-app.use(generalLimiter);
-
 const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:8080')
   .split(',')
   .map(o => o.trim());
@@ -61,8 +45,26 @@ const corsOptions = {
   optionsSuccessStatus: 204,
 };
 
+// CORS y preflight ANTES de cualquier otro middleware para que todas las
+// respuestas (incluyendo 429 del rate limiter) incluyan Access-Control-Allow-Origin
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
+
+app.use(helmet({
+  crossOriginResourcePolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:  ["'self'"],
+      scriptSrc:   ["'self'"],
+      styleSrc:    ["'self'"],
+      imgSrc:      ["'self'", 'data:'],
+      connectSrc:  ["'self'"],
+      frameSrc:    ["'none'"],
+      objectSrc:   ["'none'"],
+    },
+  },
+}));
+app.use(generalLimiter);
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 

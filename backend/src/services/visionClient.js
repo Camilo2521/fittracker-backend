@@ -98,8 +98,22 @@ async function generateRoutine(userProfile) {
   });
 }
 
+// ── Predictor neuronal ────────────────────────────────────────────────────────
+
+async function getForecast(payload) {
+  return _fetch('/predictor/forecast', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+async function getPredictorStatus() {
+  return _fetch('/predictor/status');
+}
+
 module.exports = {
   createSession, completeSession, getSession,
   generateDietPdf,
   generateDiet, generateRoutine,
+  getForecast, getPredictorStatus,
 };

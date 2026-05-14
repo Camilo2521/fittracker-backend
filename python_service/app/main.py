@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.routers import health, vision, rag
-from app.routers import pdf, frames
+from app.routers import pdf, frames, predictor as predictor_router
 from app.config import get_settings
 import logging
 
@@ -19,6 +19,7 @@ logger = logging.getLogger("fittracker.python")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import asyncio
     settings = get_settings()
     logger.info("⚡ FitTracker Python Service iniciando")
     logger.info(f"   DB             : {settings.database_url[:40]}...")
@@ -35,6 +36,12 @@ async def lifespan(app: FastAPI):
             logger.info("   SQLite tables  : OK")
         except Exception as e:
             logger.warning(f"   SQLite init    : {e}")
+
+    # Inicializar el predictor neuronal en background (no bloquea el arranque)
+    from app.services.predictor_service import predictor as _predictor
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _predictor.bootstrap)
+    logger.info("   ProgressNet    : inicializando en background…")
 
     yield
     logger.info("🛑 Python Service apagándose")
@@ -64,3 +71,4 @@ app.include_router(vision.router)
 app.include_router(frames.router)
 app.include_router(pdf.router)
 app.include_router(rag.router)
+app.include_router(predictor_router.router)

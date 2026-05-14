@@ -13,6 +13,11 @@ opencv-python-headless==4.9.0.80
 numpy==1.26.4
 pillow==10.3.0
 
+# ── Red neuronal (ProgressNet) ─────────────────────────────
+# torch ya viene como dep de ultralytics; declarado explícitamente
+# para que pip lo gestione correctamente en entornos sin ultralytics
+torch>=2.1.0
+
 # ── PDF ────────────────────────────────────────────────────
 reportlab==4.2.0
 
