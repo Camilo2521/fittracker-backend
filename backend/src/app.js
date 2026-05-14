@@ -20,13 +20,15 @@ const PORT = process.env.PORT || 3000;
 // ── MIDDLEWARE ────────────────────────────────────────────────
 app.use(requestId);
 app.set('trust proxy', 1);
+
+// CSP estricta para toda la API — sin unsafe-inline
 app.use(helmet({
   crossOriginResourcePolicy: false,
   contentSecurityPolicy: {
     directives: {
       defaultSrc:  ["'self'"],
-      scriptSrc:   ["'self'", "'unsafe-inline'"],
-      styleSrc:    ["'self'", "'unsafe-inline'"],
+      scriptSrc:   ["'self'"],
+      styleSrc:    ["'self'"],
       imgSrc:      ["'self'", 'data:'],
       connectSrc:  ["'self'"],
       frameSrc:    ["'none'"],
@@ -87,6 +89,20 @@ const swaggerSpec = swaggerJsdoc({
   apis: ['./src/routes/v1/*.js'],
 });
 
+// Swagger UI necesita unsafe-inline para sus scripts/estilos embebidos;
+// se aplica solo a /docs para no relajar la CSP del resto de la API.
+app.use('/docs', helmet({
+  crossOriginResourcePolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc:  ["'self'", "'unsafe-inline'"],
+      styleSrc:   ["'self'", "'unsafe-inline'", 'https:'],
+      imgSrc:     ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'"],
+    },
+  },
+}));
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, { explorer: true }));
 app.get('/docs.json', (_req, res) => res.json(swaggerSpec));
 

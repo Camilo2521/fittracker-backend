@@ -238,6 +238,39 @@ function _smartQuery(sql = '', params = []) {
     return { rows: [], rowCount: 1 };
   }
 
+  // UPDATE tokens_refresco SET revocado = TRUE WHERE id = $1 (refresh rotation)
+  if (s.startsWith('UPDATE TOKENS_REFRESCO SET REVOCADO') && s.includes('WHERE ID')) {
+    const targetId = Number(params[0]);
+    for (const rt of _refreshTokens.values()) {
+      if (rt.id === targetId) { rt.revocado = true; break; }
+    }
+    return { rows: [], rowCount: 1 };
+  }
+
+  // UPDATE tokens_refresco SET revocado = TRUE WHERE hash_token = $1 (logout)
+  if (s.startsWith('UPDATE TOKENS_REFRESCO SET REVOCADO') && s.includes('WHERE HASH_TOKEN')) {
+    const rt = _refreshTokens.get(params[0]);
+    if (rt) rt.revocado = true;
+    return { rows: [], rowCount: 1 };
+  }
+
+  // UPDATE tokens_recuperacion SET utilizado = TRUE (password reset)
+  if (s.startsWith('UPDATE TOKENS_RECUPERACION SET UTILIZADO')) {
+    if (s.includes('WHERE ID')) {
+      const targetId = Number(params[0]);
+      for (const rt of _recoveryTokens.values()) {
+        if (rt.id === targetId) { rt.utilizado = true; break; }
+      }
+    } else {
+      // WHERE cuenta_id = $1 AND utilizado = FALSE (invalidate old tokens)
+      const cuentaId = Number(params[0]);
+      for (const rt of _recoveryTokens.values()) {
+        if (rt.cuenta_id === cuentaId && !rt.utilizado) rt.utilizado = true;
+      }
+    }
+    return { rows: [], rowCount: 1 };
+  }
+
   // configuracion (settings)
   if (s.startsWith('INSERT INTO CONFIGURACION')) {
     const accountId = String(params[0]);
@@ -274,6 +307,18 @@ function _smartQuery(sql = '', params = []) {
   // sesiones_rep (rep counter sessions)
   if (s.startsWith('INSERT INTO SESIONES_REP')) {
     return { rows: [], rowCount: 1 };
+  }
+
+  // DELETE FROM configuracion — stateful: only returns rowCount=1 if key exists
+  if (s.startsWith('DELETE FROM CONFIGURACION')) {
+    const accountId = String(params[0]);
+    const clave = params[1];
+    const store = _settings.get(accountId) || {};
+    if (clave in store) {
+      delete store[clave];
+      return { rows: [], rowCount: 1 };
+    }
+    return { rows: [], rowCount: 0 };
   }
 
   // Generic UPDATE / DELETE

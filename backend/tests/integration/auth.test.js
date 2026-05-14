@@ -651,4 +651,25 @@ describe('POST /api/v1/auth/refresh', () => {
     expect(res.body.refreshToken).toBeTruthy();
     expect(res.body.refreshToken).not.toBe(refreshToken); // token rotated
   });
+
+  it('401 al reutilizar un refresh token ya rotado (revocado)', async () => {
+    const { credentials } = await registerUser(app);
+    const loginRes = await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: credentials.email, password: credentials.password });
+    const { refreshToken: originalToken } = loginRes.body;
+
+    // Primera rotación — consume y revoca el token original
+    const firstRotation = await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: originalToken });
+    expect(firstRotation.status).toBe(200);
+
+    // Reutilizar el token original revocado debe devolver 401
+    const reuse = await request(app)
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: originalToken });
+    expect(reuse.status).toBe(401);
+    expect(reuse.body.error).toMatch(/revocado/i);
+  });
 });

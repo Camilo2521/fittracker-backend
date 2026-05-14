@@ -326,6 +326,7 @@ router.post('/workout-log', requireAuth, asyncHandler(async (req, res) => {
   if (routineName && routineName.length > 200) return res.status(400).json({ error: 'routineName no puede superar 200 caracteres' });
   if (notes       && notes.length       > 1000) return res.status(400).json({ error: 'notes no puede superar 1000 caracteres' });
   if (!Array.isArray(exercises)) return res.status(400).json({ error: 'exercises debe ser un array' });
+  if (exercises.length > 100) return res.status(400).json({ error: 'exercises no puede superar 100 elementos' });
   const logDate = date || new Date().toISOString().slice(0, 10);
 
   const { rows } = await pg.query(
@@ -372,6 +373,8 @@ router.get('/workout-logs', requireAuth, asyncHandler(async (req, res) => {
 // ── POST /api/v1/auth/diet-log ────────────────────────────────────────────────
 router.post('/diet-log', requireAuth, asyncHandler(async (req, res) => {
   const { date, planName, meals = [], totalKcal, notes } = req.body;
+  if (!Array.isArray(meals)) return res.status(400).json({ error: 'meals debe ser un array' });
+  if (meals.length > 100) return res.status(400).json({ error: 'meals no puede superar 100 elementos' });
   const logDate = date || new Date().toISOString().slice(0, 10);
 
   const { rows } = await pg.query(

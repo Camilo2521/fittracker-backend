@@ -1,7 +1,7 @@
 version: "3.9"
 
 # ============================================================
-# FitTracker v2 — docker-compose
+# FitTracker v3 — docker-compose
 # Levanta: PostgreSQL + pgvector · Python FastAPI · Node Express
 # ============================================================
 
@@ -68,7 +68,7 @@ services:
       NODE_ENV:              ${ENVIRONMENT:-development}
       PYTHON_SERVICE_URL:    http://python_service:8000
       INTERNAL_API_SECRET:   ${INTERNAL_API_SECRET}
-      PG_CONNECTION_STRING:  postgresql://fittracker:${POSTGRES_PASSWORD}@postgres/fittracker_v2
+      DATABASE_URL:          postgresql://fittracker:${POSTGRES_PASSWORD}@postgres/fittracker_v2
       CORS_ORIGINS:          ${CORS_ORIGINS:-http://localhost:8080,http://localhost:3000}
       JWT_SECRET:            ${JWT_SECRET}
       FEATURE_VISION_V2:     ${FEATURE_VISION_V2:-false}

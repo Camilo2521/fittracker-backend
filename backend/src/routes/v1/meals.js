@@ -5,6 +5,7 @@ const router          = express.Router();
 const pg              = require('../../db/postgres');
 const { requireAuth } = require('./auth');
 const asyncHandler    = require('../../utils/asyncHandler');
+const { validateNumber, abort } = require('../../utils/validate');
 
 /**
  * @swagger
@@ -78,6 +79,12 @@ router.post('/', requireAuth, asyncHandler(async (req, res) => {
   if (calories == null || isNaN(Number(calories)) || Number(calories) < 0) {
     return res.status(400).json({ error: 'calories debe ser un número >= 0' });
   }
+  if (abort(res, [
+    validateNumber(confidence, 'confidence', { min: 0, max: 1 }),
+    validateNumber(protein,    'protein',    { min: 0, max: 1000 }),
+    validateNumber(carbs,      'carbs',      { min: 0, max: 1000 }),
+    validateNumber(fat,        'fat',        { min: 0, max: 500 }),
+  ])) return;
 
   const fecha = date || new Date().toISOString().slice(0, 10);
 

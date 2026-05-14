@@ -132,4 +132,25 @@ describe('DELETE /api/v1/settings/:key', () => {
       .set(bearerHeader(token));
     expect(res.status).toBe(400);
   });
+
+  it('204 al eliminar una clave existente', async () => {
+    // Primero crear la clave
+    await request(app)
+      .put('/api/v1/settings/to-delete')
+      .set(bearerHeader(token))
+      .send({ value: 'temp' });
+    // Luego eliminarla
+    const res = await request(app)
+      .delete('/api/v1/settings/to-delete')
+      .set(bearerHeader(token));
+    expect(res.status).toBe(204);
+  });
+
+  it('404 al eliminar una clave inexistente', async () => {
+    const res = await request(app)
+      .delete('/api/v1/settings/clave-inexistente-xyz')
+      .set(bearerHeader(token));
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/no encontrada/i);
+  });
 });

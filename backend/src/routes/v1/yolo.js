@@ -5,6 +5,7 @@ const router        = express.Router();
 const { validateEnum, abort } = require('../../utils/validate');
 const { VALID_EXERCISE_TYPES } = require('../../utils/constants');
 const { requireAuth }  = require('./auth');
+const asyncHandler     = require('../../utils/asyncHandler');
 const featureFlags     = require('../../middleware/featureFlags');
 
 const PYTHON_BASE = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
@@ -20,7 +21,7 @@ const requireYolo = featureFlags.require('yolo_enabled');
  * Proxy directo al microservicio Python para mantener la latencia baja.
  * Devuelve { reps, phase, form_score, angles, issues, tips, keypoints }.
  */
-router.post('/analyze/:exerciseType', requireAuth, requireYolo, async (req, res) => {
+router.post('/analyze/:exerciseType', requireAuth, requireYolo, asyncHandler(async (req, res) => {
   const { exerciseType } = req.params;
   if (abort(res, [validateEnum(exerciseType, 'exerciseType', VALID_EXERCISE_TYPES, { required: true })])) return;
   const sessionId = req.query.session_id || 'default';
@@ -52,12 +53,12 @@ router.post('/analyze/:exerciseType', requireAuth, requireYolo, async (req, res)
     console.error('[yolo] POST /analyze error:', err.message);
     res.status(503).json({ error: 'Servicio YOLO no disponible' });
   }
-});
+}));
 
 /**
  * GET /api/v1/yolo/session/:sessionId/summary
  */
-router.get('/session/:sessionId/summary', requireAuth, requireYolo, async (req, res) => {
+router.get('/session/:sessionId/summary', requireAuth, requireYolo, asyncHandler(async (req, res) => {
   try {
     const pyRes = await fetch(
       `${PYTHON_BASE}/frames/session/${req.params.sessionId}/summary`,
@@ -68,12 +69,12 @@ router.get('/session/:sessionId/summary', requireAuth, requireYolo, async (req, 
     console.error('[yolo] GET /summary error:', err.message);
     res.status(503).json({ error: 'Servicio YOLO no disponible' });
   }
-});
+}));
 
 /**
  * DELETE /api/v1/yolo/session/:sessionId
  */
-router.delete('/session/:sessionId', requireAuth, requireYolo, async (req, res) => {
+router.delete('/session/:sessionId', requireAuth, requireYolo, asyncHandler(async (req, res) => {
   try {
     const pyRes = await fetch(
       `${PYTHON_BASE}/frames/session/${req.params.sessionId}`,
@@ -84,6 +85,6 @@ router.delete('/session/:sessionId', requireAuth, requireYolo, async (req, res) 
     console.error('[yolo] DELETE /session error:', err.message);
     res.status(503).json({ error: 'Servicio YOLO no disponible' });
   }
-});
+}));
 
 module.exports = router;
