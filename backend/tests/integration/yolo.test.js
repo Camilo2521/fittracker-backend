@@ -13,9 +13,12 @@ beforeAll(async () => {
   ({ token } = await registerUser(app));
 });
 
-// ── Feature flag OFF (default en tests) ──────────────────────────────────────
+// ── Feature flag OFF ─────────────────────────────────────────────────────────
 
 describe('YOLO — feature flag deshabilitado (FEATURE_YOLO_ENABLED=false)', () => {
+  beforeAll(() => { process.env.FEATURE_YOLO_ENABLED = 'false'; });
+  afterAll(() => { process.env.FEATURE_YOLO_ENABLED = 'true'; });
+
   it('POST /analyze/:type → 403 cuando el flag está apagado', async () => {
     const res = await request(app)
       .post('/api/v1/yolo/analyze/squat')

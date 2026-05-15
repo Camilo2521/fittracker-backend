@@ -29,8 +29,7 @@ sqlalchemy[asyncio]==2.0.30
 aiosqlite==0.20.0
 alembic==1.13.1
 
-# ── RAG (requiere OPENAI_API_KEY + PostgreSQL+pgvector) ────
-# openai==1.30.1
-# sentence-transformers==3.0.1
-# asyncpg==0.29.0
-# pgvector==0.2.5
+# ── RAG (embeddings locales + Ollama como LLM) ─────────────
+sentence-transformers==3.0.1
+asyncpg==0.29.0
+pgvector==0.2.5

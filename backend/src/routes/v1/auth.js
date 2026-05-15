@@ -229,8 +229,9 @@ router.put('/profile', requireAuth, asyncHandler(async (req, res) => {
     name, goal, weight, height, age, gender, activityLevel, restrictions,
     target_weight,             // from syncGoal / syncUserProfile
     height_cm,                 // alias used by some callers
+    heightCm,                  // camelCase alias sent by frontend
   } = req.body;
-  const heightVal = height || height_cm || null;
+  const heightVal = height || height_cm || heightCm || null;
 
   // Read current row first so COALESCE can decide the final values
   const { rows: current } = await pg.query(

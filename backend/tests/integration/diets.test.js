@@ -29,12 +29,12 @@ describe('POST /api/v1/diets/generate', () => {
   });
 
   describe('Validación', () => {
-    it('rechaza sin weekStart (400)', async () => {
+    it('acepta sin weekStart usando la semana actual (200)', async () => {
       const res = await request(app)
         .post('/api/v1/diets/generate')
         .set(bearerHeader(TOKEN))
         .send({ goal: 'lose' });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
     });
   });
 

@@ -39,12 +39,18 @@ async def health_check():
         try:
             from sentence_transformers import SentenceTransformer  # noqa: F401
             checks["embedder"] = "ok"
-            checks["rag"] = "ok" if settings.openai_api_key else "error: OPENAI_API_KEY no configurada"
+            # RAG funciona con OpenAI o con Ollama local
+            if settings.openai_api_key:
+                checks["rag"] = "ok (openai)"
+            elif settings.ollama_url:
+                checks["rag"] = "ok (ollama)"
+            else:
+                checks["rag"] = "error: configura OPENAI_API_KEY u OLLAMA_URL"
         except ImportError:
             checks["embedder"] = "error: sentence-transformers no instalado"
 
     latency_ms = round((time.time() - start) * 1000)
-    all_ok = all(v in ("ok", "disabled") for v in checks.values())
+    all_ok = all(v.startswith("ok") or v == "disabled" for v in checks.values())
 
     return {
         "status":     "ok" if all_ok else "degraded",

@@ -32,7 +32,7 @@ const corsOptions = {
   origin: (origin, cb) => {
     if (!origin || origin === 'null') return cb(null, true);
     // En desarrollo se permiten todos los localhost (puertos dinámicos del dev server)
-    if (isDev && /^https?:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true);
+    if (isDev && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return cb(null, true);
     if (allowedOrigins.includes(origin)) return cb(null, true);
     const err = new Error(`Origin ${origin} not allowed by CORS`);
     err.status = 403;
@@ -158,15 +158,34 @@ async function start() {
 
   startTokenCleanup();
 
-  app.listen(PORT, '0.0.0.0', () => {
-    const { FLAGS } = require('./middleware/featureFlags');
-    console.log(`✅ FitTracker API v3 running on http://localhost:${PORT}`);
+  const { FLAGS } = require('./middleware/featureFlags');
+
+  const onListen = (protocol, port) => {
+    console.log(`✅ FitTracker API v3 running on ${protocol}://localhost:${port}`);
     console.log(`   Environment  : ${process.env.NODE_ENV || 'development'}`);
     console.log(`   Database     : PostgreSQL (${process.env.DATABASE_URL?.replace(/:([^:@]+)@/, ':***@') || 'no config'})`);
     console.log(`   Python svc   : ${process.env.PYTHON_SERVICE_URL || 'http://localhost:8000'}`);
     console.log(`   Flags activos: ${Object.entries(FLAGS).filter(([,v])=>v).map(([k])=>k).join(', ') || 'ninguno'}`);
-    console.log(`   Swagger      : http://localhost:${PORT}/docs`);
-  });
+    console.log(`   Swagger      : ${protocol}://localhost:${port}/docs`);
+  };
+
+  // HTTP (siempre activo)
+  app.listen(PORT, '::', () => onListen('http', PORT));
+
+  // HTTPS local — solo si los certs están disponibles y no estamos en test
+  const HTTPS_PORT = parseInt(process.env.HTTPS_PORT || '3443', 10);
+  const certDir    = process.env.HTTPS_CERT_DIR || '';
+  if (certDir && process.env.NODE_ENV !== 'test') {
+    try {
+      const fs     = require('fs');
+      const https  = require('https');
+      const key    = fs.readFileSync(require('path').join(certDir, 'localhost+2-key.pem'));
+      const cert   = fs.readFileSync(require('path').join(certDir, 'localhost+2.pem'));
+      https.createServer({ key, cert }, app).listen(HTTPS_PORT, '::', () => onListen('https', HTTPS_PORT));
+    } catch (e) {
+      console.warn(`   HTTPS        : no disponible (${e.message})`);
+    }
+  }
 }
 
 start().catch(err => {

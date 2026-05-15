@@ -38,8 +38,7 @@ const PYTHON_BASE = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
  *       200: { description: Plan de dieta semanal con calorías por comida }
  */
 router.post('/generate', requireAuth, asyncHandler(async (req, res) => {
-  const { weekStart } = req.body;
-  if (!weekStart) return res.status(400).json({ error: 'weekStart es requerido' });
+  const weekStart = req.body.weekStart || _currentWeekStart();
   if (abort(res, [validateDate(weekStart, 'weekStart')])) return;
 
   const { rows } = await pg.query('SELECT * FROM cuentas WHERE id = $1', [req.accountId]);

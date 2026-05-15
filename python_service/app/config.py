@@ -16,6 +16,10 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
 
+    # Ollama (LLM local — alternativa a OpenAI para RAG)
+    ollama_url:   str = "http://127.0.0.1:11434"
+    ollama_model: str = "llama3.2"
+
     yolo_model_path: str = "yolov8n-pose.pt"
 
     feature_yolo_enabled: bool = True

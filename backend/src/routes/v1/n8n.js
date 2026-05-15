@@ -27,7 +27,12 @@ function verifyN8nSecret(req, res, next) {
 
 // ── POST /api/v1/n8n/build-prompt ────────────────────────────────────────────
 router.post('/build-prompt', verifyN8nSecret, (req, res) => {
-  const { event, accountId, user = {}, data = {}, context: ctx = {} } = req.body;
+  // n8n Webhook node wraps payload: { headers, params, query, body, webhookUrl, executionMode }
+  // Direct calls send the payload at root level. Unwrap if needed.
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
+  if (!body.event && body.body && typeof body.body === 'object') body = body.body;
+  const { event, accountId, user = {}, data = {}, context: ctx = {} } = body;
   if (!event) return res.status(400).json({ error: 'event es requerido' });
 
   const goalLabel = { lose: 'bajar de peso', gain: 'ganar músculo', maintain: 'mantener la forma' };
@@ -80,14 +85,16 @@ router.post('/callback', verifyN8nSecret, asyncHandler(async (req, res) => {
   const { accountId, event, suggestion, suggestionType } = req.body;
   if (!accountId)  return res.status(400).json({ error: 'accountId es requerido' });
   if (!suggestion) return res.status(400).json({ error: 'suggestion es requerido' });
+  const numericId = parseInt(accountId, 10);
+  if (isNaN(numericId) || numericId <= 0) return res.status(400).json({ error: 'accountId debe ser un número entero válido' });
 
-  const { rows: accs } = await pg.query('SELECT id, nombre FROM cuentas WHERE id = $1', [accountId]);
+  const { rows: accs } = await pg.query('SELECT id, nombre FROM cuentas WHERE id = $1', [numericId]);
   if (!accs.length) return res.status(404).json({ error: 'Cuenta no encontrada' });
 
   const type = suggestionType || event || 'n8n_coaching';
   const { rows } = await pg.query(
     'INSERT INTO sugerencias_ia (cuenta_id, tipo_sugerencia, contenido) VALUES ($1,$2,$3) RETURNING id',
-    [accountId, type, suggestion]
+    [numericId, type, suggestion]
   );
 
   console.log(`[n8n] Sugerencia guardada — cuenta ${accountId} (${accs[0].nombre}) tipo="${type}" id=${rows[0].id}`);

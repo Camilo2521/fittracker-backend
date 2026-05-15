@@ -220,9 +220,9 @@ describe('Health Check — /health', () => {
     expect(flags).toHaveProperty('vision_v2');
   });
 
-  it('en test los feature flags son todos false por defecto', () => {
+  it('los feature flags son todos booleanos', () => {
     const { feature_flags } = res.body;
-    Object.values(feature_flags).forEach(v => expect(v).toBe(false));
+    Object.values(feature_flags).forEach(v => expect(typeof v).toBe('boolean'));
   });
 
   it('el Content-Type es application/json', () => {

@@ -8,8 +8,11 @@ python_service/*.pyc
 
 # Environment — NUNCA subir al repo
 .env
+.env.production
 backend/.env
+backend/.env.production
 python_service/.env
+python_service/.env.production
 n8n/.env
 
 # Logs

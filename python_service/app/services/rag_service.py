@@ -84,55 +84,91 @@ def _profile_context(p: UserProfile) -> str:
 
 
 async def _retrieve_docs(query: str, limit: int = 3) -> list[str]:
-    """Búsqueda vectorial en pgvector. Devuelve chunks de texto relevantes."""
-    settings = get_settings()
+    """
+    Búsqueda semántica sobre documentos ingestados.
+    Usa numpy cosine similarity (JSONB embeddings) — no requiere pgvector.
+    """
     try:
+        import numpy as np
         from sentence_transformers import SentenceTransformer
         from app.database import get_engine
         from sqlalchemy import text
 
         model = SentenceTransformer("all-MiniLM-L6-v2")
-        embedding = model.encode(query).tolist()
+        q_emb = model.encode(query)
 
         engine = get_engine()
         async with engine.connect() as conn:
             rows = await conn.execute(
-                text("""
-                    SELECT content FROM documents
-                    ORDER BY embedding <=> CAST(:emb AS vector)
-                    LIMIT :lim
-                """),
-                {"emb": str(embedding), "lim": limit},
+                text("SELECT content, embedding FROM documents WHERE embedding IS NOT NULL LIMIT 500")
             )
-            return [r[0] for r in rows]
+            records = rows.fetchall()
+
+        if not records:
+            return []
+
+        contents   = [r[0] for r in records]
+        embeddings = np.array([r[1] for r in records], dtype=float)
+
+        # Cosine similarity
+        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+        norms[norms == 0] = 1
+        sims = embeddings / norms @ (q_emb / (np.linalg.norm(q_emb) or 1))
+        top_idx = np.argsort(sims)[::-1][:limit]
+        return [contents[i] for i in top_idx]
+
     except Exception as e:
         logger.warning(f"[rag] No se pudo recuperar documentos: {e}")
         return []
 
 
-async def _call_openai(system: str, user_msg: str) -> tuple[str, int, int, int]:
-    """Llama a OpenAI y devuelve (content, tokens_in, tokens_out, latency_ms)."""
+async def _call_llm(system: str, user_msg: str) -> tuple[str, int, int, int]:
+    """
+    Llama al LLM configurado y devuelve (content, tokens_in, tokens_out, latency_ms).
+    Prioridad: OpenAI si OPENAI_API_KEY está presente → Ollama en caso contrario.
+    """
     settings = get_settings()
-    if not settings.openai_api_key:
-        raise ValueError("OPENAI_API_KEY no configurada")
-
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
-
     t0 = time.time()
-    response = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
+
+    if settings.openai_api_key:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=settings.openai_api_key)
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user",   "content": user_msg},
+            ],
+            temperature=0.4,
+            response_format={"type": "json_object"},
+        )
+        latency_ms = int((time.time() - t0) * 1000)
+        msg = response.choices[0].message.content
+        usage = response.usage
+        return msg, usage.prompt_tokens, usage.completion_tokens, latency_ms
+
+    # Ollama — API compatible con OpenAI en /v1/chat/completions
+    import httpx
+    payload = {
+        "model":    settings.ollama_model,
+        "messages": [
             {"role": "system", "content": system},
             {"role": "user",   "content": user_msg},
         ],
-        temperature=0.4,
-        response_format={"type": "json_object"},
-    )
+        "stream": False,
+        "options": {"temperature": 0.4},
+        "format":  "json",
+    }
+    async with httpx.AsyncClient(timeout=120) as client:
+        r = await client.post(f"{settings.ollama_url}/api/chat", json=payload)
+        r.raise_for_status()
+        data = r.json()
+
     latency_ms = int((time.time() - t0) * 1000)
-    msg = response.choices[0].message.content
-    usage = response.usage
-    return msg, usage.prompt_tokens, usage.completion_tokens, latency_ms
+    msg = data["message"]["content"]
+    tok_in  = data.get("prompt_eval_count", 0)
+    tok_out = data.get("eval_count", 0)
+    return msg, tok_in, tok_out, latency_ms
 
 
 async def _save_query(db, external_id: str, query_type: str, prompt: str,
@@ -167,7 +203,7 @@ async def generate_diet(profile: UserProfile, week_start: str, db) -> DietPlanOu
     if rag_ctx:
         prompt += f"\n\nContexto nutricional de referencia:\n{rag_ctx}"
 
-    raw, tok_in, tok_out, lat = await _call_openai(_DIET_SYSTEM, prompt)
+    raw, tok_in, tok_out, lat = await _call_llm(_DIET_SYSTEM, prompt)
     data = json.loads(raw)
 
     await _save_query(
@@ -218,7 +254,7 @@ async def generate_routine(profile: UserProfile, days_per_week: int, db) -> Rout
     if rag_ctx:
         prompt += f"\n\nContexto de entrenamiento de referencia:\n{rag_ctx}"
 
-    raw, tok_in, tok_out, lat = await _call_openai(_ROUTINE_SYSTEM, prompt)
+    raw, tok_in, tok_out, lat = await _call_llm(_ROUTINE_SYSTEM, prompt)
     data = json.loads(raw)
 
     await _save_query(
@@ -276,6 +312,7 @@ async def ingest_document(source: str, title: str, content: str,
 
     count = 0
     for i, chunk in enumerate(chunks):
+        # Guardar embedding como lista JSON (compatible con JSONB sin pgvector)
         embedding = model.encode(chunk).tolist()
         db.add(Document(
             id=uuid.uuid4(),
