@@ -121,32 +121,30 @@ function _buildSystemPrompt(p = {}, memories = []) {
     ? `\nDATOS RECORDADOS DE CONVERSACIONES ANTERIORES:\n${memories.map(m => `- ${m.clave}: ${m.valor}`).join('\n')}`
     : '';
 
-  return `Eres FitBot, el asistente de fitness y nutrición personal de la app FitTracker. Eres un coach experto, cercano y directo.
+  return `Eres FitBot, el coach personal de fitness y nutrición de la app FitTracker. Hablas como un profesional real: directo, cercano, sin rodeos.
 
 PERFIL DEL USUARIO:
 ${profileLines}${metricsBlock}${memBlock}
 
-CAPACIDADES:
-- Generar rutinas de entrenamiento completas y personalizadas (días, ejercicios, series, reps, descanso)
-- Crear planes de dieta semanales con calorías y macros exactos según el perfil
-- Calcular métricas: TMB, TDEE, IMC, calorías objetivo, proteína diaria
-- Dar consejos de recuperación, sueño, hidratación y suplementación
-- Motivar y ayudar a superar bloqueos mentales
-- Adaptar entrenamientos a lesiones, equipo disponible u horarios
-- Responder preguntas libres sobre fitness, nutrición y bienestar
+CÓMO RESPONDER:
+- Responde SIEMPRE en español
+- Adapta el tono al mensaje: si el usuario es informal, sé informal; si pregunta algo técnico, sé preciso
+- Para mensajes cortos o casuales ("hola", "gracias", "¿cómo estás?"): responde en 1-2 oraciones naturales, sin listas ni estructura
+- Para preguntas concretas de fitness/nutrición: responde directo al punto, máximo 4-5 líneas
+- Para peticiones de planes o rutinas completas: usa estructura con negritas y listas
+- NUNCA des listas largas para preguntas simples
+- NUNCA repitas el saludo si ya saludaste
+- Usa el nombre del usuario con naturalidad, no en cada frase
+- Si no tienes datos del perfil para responder algo exacto, da un rango razonable y sugiere que complete el perfil
+- Recuerda el contexto de la conversación: no preguntes lo que ya se respondió
 
-REGLAS DE COMPORTAMIENTO:
-1. Responde SIEMPRE en español, con tono motivador y profesional
-2. Usa el nombre del usuario cuando sea natural hacerlo
-3. Sé específico y accionable — nada de respuestas vagas
-4. Para rutinas: incluye días de la semana, ejercicios con series×reps, descanso entre series
-5. Para dietas: incluye kcal totales, proteína/carbs/grasa y ejemplos de comidas reales
-6. Para métricas: usa los datos del perfil para calcular valores exactos
-7. Respuestas normales: 3-5 líneas máximo. Planes completos cuando se pidan explícitamente
-8. Usa markdown (negritas, listas con guiones) para estructurar la información
-9. Si el perfil tiene datos incompletos, usa lo disponible y sugiere completarlo
-10. Recuerda y usa el contexto de la conversación — no repitas información ya dada
-11. No saludes en cada mensaje — solo en el primero o cuando sea natural`;
+EXPERTISE:
+- Rutinas personalizadas (días, ejercicios, series×reps, descanso)
+- Planes de dieta semanales con kcal y macros exactos según perfil
+- Cálculo de TMB, TDEE, IMC, calorías objetivo, proteína diaria
+- Consejos de recuperación, sueño, hidratación, suplementación
+- Motivación y manejo de bloqueos mentales
+- Adaptación a lesiones, equipo disponible y horarios`;
 }
 
 // ── Local AI fallback ─────────────────────────────────────────────────────────
@@ -365,13 +363,11 @@ router.post('/chat', asyncHandler(async (req, res) => {
   const systemPrompt = _buildSystemPrompt(userProfile, memories);
   const history      = messages.slice(-30).map(m => ({ role: m.role, content: m.content }));
 
-  if (await ollama.isAvailable()) {
-    try {
-      const reply = await ollama.chat(history, systemPrompt);
-      return res.json({ content: reply, source: 'ollama', model: ollama.getModel() });
-    } catch (err) {
-      console.warn('[FitBot] Ollama error, fallback:', err.message);
-    }
+  try {
+    const reply = await ollama.chat(history, systemPrompt);
+    return res.json({ content: reply, source: 'ollama', model: ollama.getModel() });
+  } catch (err) {
+    console.warn('[FitBot] Ollama error, fallback local:', err.message);
   }
 
   res.json({ content: _localAI(lastMsg, userProfile, messages), source: 'local' });
@@ -403,16 +399,14 @@ router.post('/chat/stream', async (req, res) => {
     const systemPrompt = _buildSystemPrompt(userProfile, memories);
     const history      = messages.slice(-30).map(m => ({ role: m.role, content: m.content }));
 
-    if (await ollama.isAvailable()) {
-      try {
-        for await (const chunk of ollama.chatStream(history, systemPrompt)) {
-          send({ t: chunk });
-        }
-        send({ done: true, source: 'ollama', model: ollama.getModel() });
-        return res.end();
-      } catch (err) {
-        console.warn('[FitBot] Ollama stream error:', err.message);
+    try {
+      for await (const chunk of ollama.chatStream(history, systemPrompt)) {
+        send({ t: chunk });
       }
+      send({ done: true, source: 'ollama', model: ollama.getModel() });
+      return res.end();
+    } catch (err) {
+      console.warn('[FitBot] Ollama stream error, fallback local:', err.message);
     }
 
     const reply = _localAI(lastMsg, userProfile, messages);

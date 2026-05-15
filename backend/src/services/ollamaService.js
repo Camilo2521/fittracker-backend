@@ -18,9 +18,9 @@ async function chat(messages, systemPrompt) {
       model:    MODEL(),
       messages: [{ role: 'system', content: systemPrompt }, ...messages],
       stream:   false,
-      options:  { temperature: 0.72, top_p: 0.9, num_ctx: 4096, repeat_penalty: 1.1 },
+      options:  { temperature: 0.82, top_p: 0.92, num_ctx: 4096, repeat_penalty: 1.05 },
     }),
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(120_000),
   });
   if (!r.ok) throw new Error(`Ollama ${r.status}: ${await r.text()}`);
   const d = await r.json();
@@ -35,7 +35,7 @@ async function* chatStream(messages, systemPrompt) {
       model:    MODEL(),
       messages: [{ role: 'system', content: systemPrompt }, ...messages],
       stream:   true,
-      options:  { temperature: 0.72, top_p: 0.9, num_ctx: 4096, repeat_penalty: 1.1 },
+      options:  { temperature: 0.82, top_p: 0.92, num_ctx: 4096, repeat_penalty: 1.05 },
     }),
     signal: AbortSignal.timeout(120_000),
   });
